@@ -1,0 +1,151 @@
+/**
+ * @NApiVersion 2.1
+ * @NScriptType UserEventScript
+ * @description Guardián del Servidor: Inyección de Límite de Usuario y Validación de Reglas de Margen.
+ * @appliedtorecord - SalesOrder, CashSale, Invoice, Estimate.
+ * @author Saul Ivan Angulo Varela
+ * @contact saul.angulo98@gmail.com
+ * @version 1.0.0
+ * @copyright Saul Angulo Development Services
+ * @description - Este script implementa una lógica de validación en cascada para asegurar que los descuentos aplicados en las transacciones de ventas no excedan ni la autoridad del usuario ni la capacidad del artículo, 
+ * considerando también penalizaciones por nivel de servicio. La inyección del límite del usuario se realiza al cargar la pantalla para optimizar la experiencia y evitar búsquedas repetitivas.
+ * @RiotID - ares98
+ */
+
+define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
+
+    /**
+     * Trigger 1: Inyección del límite del usuario al cargar la pantalla.
+     */
+    const beforeLoad = (context) => {
+        // Solo ejecutamos en creación para inicializar el dato
+        if (context.type !== context.UserEventType.CREATE) return;
+
+        try {
+            const user = runtime.getCurrentUser();
+            const newRecord = context.newRecord;
+
+            // (Ajustar ID del campo)
+            const employeeData = search.lookupFields({
+                type: search.Type.EMPLOYEE,
+                id: user.id,
+                columns: ['custentity_limite_desc_usuario'] // <-- (Ajustar ID del campo) 
+            });
+
+            const limiteUsuario = parseFloat(employeeData.custentity_limite_desc_usuario) || 0;
+
+            // (Ajustar ID del campo)
+            newRecord.setValue({
+                fieldId: 'custbody_curr_user_discount_limit',
+                value: limiteUsuario
+            });
+
+        } catch (e) {
+            log.error({ title: 'Error en beforeLoad - Límite Usuario', details: e.message });
+            // No lanzamos error para no bloquear la carga de la UI por un fallo de caché
+        }
+    };
+
+    /**
+     * Guardián Final: Validación en cascada antes de guardar en Base de Datos.
+     */
+    const beforeSubmit = (context) => {
+        // Solo validamos cuando se crea o se edita la transacción
+        if (context.type !== context.UserEventType.CREATE && context.type !== context.UserEventType.EDIT) return;
+
+        const newRecord = context.newRecord;
+
+        try {
+            // 1. Obtener variables de cabecera en memoria (Ajustar ID de campos)
+            const limiteUsuario = parseFloat(newRecord.getValue({ fieldId: 'custbody_curr_user_discount_limit' })) || 0;
+            const reduccionServicio = parseFloat(newRecord.getValue({ fieldId: 'custbody_hidden_serv_lvl_reduction' })) || 0; 
+            
+            // NUEVO: Extraer el límite del Cliente de forma eficiente (1 Unidad de Gobernanza)
+            let limiteCliente = 0;
+            const customerId = newRecord.getValue({ fieldId: 'entity' });
+            
+            if (customerId) {
+                const customerData = search.lookupFields({
+                    type: search.Type.CUSTOMER,
+                    id: customerId,
+                    columns: ['custentity_limite_desc_cliente'] // <-- (Ajustar ID del campo)
+                });
+                limiteCliente = parseFloat(customerData.custentity_limite_desc_cliente) || 0;
+            }
+            
+            const lineCount = newRecord.getLineCount({ sublistId: 'item' });
+
+            // 2. Iterar sobre las líneas para validar la matriz matemática
+            for (let i = 0; i < lineCount; i++) {
+                const itemType = newRecord.getSublistValue({ sublistId: 'item', fieldId: 'itemtype', line: i });
+                
+                // Exclusión de artículos que no aplican
+                if (itemType === 'Group' || itemType === 'Kit' || itemType === 'EndGroup') continue;
+
+                const descSolicitado = parseFloat(newRecord.getSublistValue({
+                    sublistId: 'item',
+                    fieldId: 'custcol_margen_desc_solicitado', // (Ajustar ID del campo)
+                    line: i
+                })) || 0;
+
+                if (descSolicitado === 0) continue;
+
+                // Límite máximo del artículo
+                const limiteArticulo = parseFloat(newRecord.getSublistValue({
+                    sublistId: 'item',
+                    fieldId: 'custcol_max_discount_item', // (Ajustar ID del campo)
+                    line: i
+                })) || 0;
+
+                // --- MATEMÁTICA Y VALIDACIÓN EN CASCADA ---
+                
+                // Regla A: Capacidad real del artículo tras aplicar la penalización por servicio
+                const capacidadRealArticulo = limiteArticulo - reduccionServicio;
+
+                if (descSolicitado > capacidadRealArticulo) {
+                    throw error.create({
+                        name: 'ERR_CAPACIDAD_ARTICULO_EXCEDIDA',
+                        message: `Línea ${i + 1}: El descuento solicitado (${descSolicitado}%) excede la capacidad permitida del artículo tras aplicar el nivel de servicio (${capacidadRealArticulo}%).`,
+                        notifyOff: true
+                    });
+                }
+
+                // Regla B: Validamos contra el Límite del Cliente
+                if (descSolicitado > limiteCliente) {
+                    throw error.create({
+                        name: 'ERR_LIMITE_CLIENTE_EXCEDIDO',
+                        message: `Línea ${i + 1}: El descuento solicitado (${descSolicitado}%) excede el límite máximo contractual permitido para este cliente (${limiteCliente}%).`,
+                        notifyOff: true
+                    });
+                }
+
+                // Regla C: Validamos contra la Autoridad Personal del Vendedor (Usuario)
+                if (descSolicitado > limiteUsuario) {
+                    throw error.create({
+                        name: 'ERR_LIMITE_USUARIO_EXCEDIDO',
+                        message: `Línea ${i + 1}: El descuento solicitado (${descSolicitado}%) excede tu límite de autorización personal (${limiteUsuario}%).`,
+                        notifyOff: true
+                    });
+                }
+            }
+
+        } catch (e) {
+            // Re-lanzamos nuestros errores de validación de negocio para bloquear el guardado
+            if (e.name === 'ERR_CAPACIDAD_ARTICULO_EXCEDIDA' || e.name === 'ERR_LIMITE_CLIENTE_EXCEDIDO' || e.name === 'ERR_LIMITE_USUARIO_EXCEDIDO') {
+                throw e;
+            }
+            
+            log.error({ title: 'Error crítico en validación beforeSubmit', details: e });
+            throw error.create({
+                name: 'ERR_SISTEMA_MARGENES',
+                message: 'Ocurrió un error al validar los márgenes de la transacción. Detalles: ' + e.message,
+                notifyOff: true
+            });
+        }
+    };
+
+    return {
+        beforeLoad: beforeLoad,
+        beforeSubmit: beforeSubmit
+    };
+});

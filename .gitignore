@@ -1,0 +1,10 @@
+# 1. Ignorar todos los archivos y carpetas por defecto
+*
+
+# 2. Permitir que Git lea las carpetas (necesario para buscar dentro de ellas)
+!*/
+
+# 3. Excepciones: Archivos que SÍ queremos rastrear
+!*.js
+!*.md
+!.gitignore
