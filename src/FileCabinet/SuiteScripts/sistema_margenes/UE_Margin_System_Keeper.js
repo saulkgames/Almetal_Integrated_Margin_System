@@ -25,16 +25,14 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
             const user = runtime.getCurrentUser();
             const newRecord = context.newRecord;
 
-            // (Ajustar ID del campo)
             const employeeData = search.lookupFields({
                 type: search.Type.EMPLOYEE,
                 id: user.id,
-                columns: ['custentity_limite_desc_usuario'] // <-- (Ajustar ID del campo) 
+                columns: ['custentity_user_margin_limit']
             });
 
-            const limiteUsuario = parseFloat(employeeData.custentity_limite_desc_usuario) || 0;
+            const limiteUsuario = parseFloat(employeeData.custentity_user_margin_limit) || 0;
 
-            // (Ajustar ID del campo)
             newRecord.setValue({
                 fieldId: 'custbody_curr_user_discount_limit',
                 value: limiteUsuario
@@ -42,8 +40,8 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
 
         } catch (e) {
             log.error({ title: 'Error en beforeLoad - Límite Usuario', details: e.message });
-            // No lanzamos error para no bloquear la carga de la UI por un fallo de caché
-        }
+            // No bloqueamos la carga, solo registramos el error
+            }
     };
 
     /**
