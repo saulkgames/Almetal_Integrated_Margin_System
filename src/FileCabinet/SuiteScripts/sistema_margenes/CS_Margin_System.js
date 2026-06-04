@@ -1,167 +1,81 @@
 /**
  * @NApiVersion 2.1
  * @NScriptType ClientScript
- * @description Controlador de interfaz de usuario para inyección de precios y validación de reglas en líneas.
+ * @NModuleScope SameAccount
+ * @description Controlador de interfaz de usuario para inyección de precios, estado global y validación de reglas en líneas.
  */
 
-define(['N/ui/dialog', 'N/currentRecord', './CM_Margin_System_Core'], (dialog, currentRecord, core) => {
+define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, core) => {
 
-    // Variable global para cachear límites de cabecera y evitar llamadas excesivas al DOM
+    // Estado global para cachear límites y controlar el flujo de la UI
     const globalState = {
         limiteCliente: 0,
-        limiteUsuario: 0, // Inyectado por UE
-        reduccionServicioActual: 0, // Nombre estandarizado
+        limiteUsuario: 0,
+        reduccionServicioActual: 0,
         nivelesEnvio: { noEnvio: 0, envioHoy: 0, envioDias: 0 },
-        isRecalculating: false
+        isRecalculating: false,
+        terminoEntregaAnterior: null
     };
 
     /**
-     * GATILLO 1: (Manejado por el User Event). Aquí solo leemos lo que el UE inyectó.
+     * GATILLO 1: Inicialización de la página. Se lee el estado base inyectado por User Event.
      */
     const pageInit = (context) => {
         const rec = context.currentRecord;
-        // (Ajustar ID del campo)
+
         globalState.limiteUsuario = parseFloat(rec.getValue({ fieldId: 'custbody_curr_user_discount_limit' })) || 0;
+        globalState.terminoEntregaAnterior = rec.getValue({ fieldId: 'custbody_termino_entrega' });
+
+        console.log('[CM_DEBUG] pageInit completado. Estado inicial:', JSON.stringify(globalState));
     };
+
     /**
-     * Ejecuta el recálculo e inyección del precio ante cambios en los campos gatillo.
+     * GATILLO 2 y 3: Manejador central de cambios en cabecera y líneas.
+     * Delega la responsabilidad a funciones auxiliares (helpers) para mantener el código limpio.
      */
     const fieldChanged = (context) => {
         const { currentRecord: rec, sublistId, fieldId } = context;
 
-        // --- GATILLO 2: CAMBIO DE CLIENTE ---
         if (fieldId === 'entity') {
-            const customerId = rec.getValue({ fieldId: 'entity' });
-            if (!customerId) return; // Si borraron el cliente, no hacemos nada
-
-            // Búsqueda Asíncrona (Promise) al Custom Record de Niveles de Servicio
-            search.lookupFields.promise({
-                type: 'customrecord_margin_system_lvl_service', // Asumiendo que el ID del cliente mapea a este registro
-                id: customerId, // Ajustar lógica de búsqueda si el ID no es directo
-                columns: ['custrecord_serv_lvl_noenvio', 'custrecord_serv_lvl_enviohoy', 'custrecord_serv_lvl_enviodias']
-            }).then((result) => {
-                // Guardamos en caché
-                globalState.nivelesEnvio = {
-                    noEnvio: parseFloat(result.custrecord_serv_lvl_noenvio) || 0,
-                    envioHoy: parseFloat(result.custrecord_serv_lvl_enviohoy) || 0,
-                    envioDias: parseFloat(result.custrecord_serv_lvl_enviodias) || 0
-                };
-                // Opcional: Guardar esto en un campo de texto oculto en formato JSON (JSON.stringify)
-            }).catch((e) => {
-                console.error('Error obteniendo niveles de servicio:', e);
-            });
+            handleCustomerChange(rec);
             return;
         }
 
-        // --- GATILLO 3: CAMBIO EN TÉRMINOS DE ENTREGA ---
-        if (fieldId === 'custbody_termino_entrega') { // (Ajustar ID del campo)
-            const terminoSeleccionado = rec.getValue({ fieldId: 'custbody_termino_entrega' });// (Ajustar ID del campo)
-
-            // 1. Mapear el término seleccionado a la reducción (Ejemplo hipotético)
-            if (terminoSeleccionado === '1') globalState.reduccionServicioActual = globalState.nivelesEnvio.envioHoy;
-            else if (terminoSeleccionado === '2') globalState.reduccionServicioActual = globalState.nivelesEnvio.envioDias;
-            else globalState.reduccionServicioActual = 0;
-
-            // (Ajustar ID del campo)
-            rec.setValue({ fieldId: 'custbody_hidden_serv_lvl_reduction', value: globalState.reduccionServicioActual, ignoreFieldChange: true });
-
-            // 2. El Patrón de Recálculo Interactivo
-            const lineCount = rec.getLineCount({ sublistId: 'item' });
-            if (lineCount > 0 && !globalState.isRecalculating) {
-                dialog.confirm({
-                    title: 'Cambio de Condiciones',
-                    message: 'El término de entrega ha cambiado, lo que afecta las capacidades de descuento. ¿Deseas recalcular los límites de las líneas existentes?'
-                }).then((success) => {
-                    if (success) {
-                        globalState.isRecalculating = true;
-                        // Bucle for para hacer selectLine y commitLine sobre cada artículo, inyectando la nueva reducción
-                        for (let i = 0; i < lineCount; i++) {
-                            rec.selectLine({ sublistId: 'item', line: i });
-                            // Tu lógica del 'core' se ejecuta aquí
-                            rec.commitLine({ sublistId: 'item' });
-                        }
-                        globalState.isRecalculating = false;
-                    }
-                });
-            }
-            return;
-        }
-        // Limitar ejecución estrictamente a la sublista de artículos
-        if (sublistId !== 'item') return;
-
-        // (Ajustar IDs de campos)
-        const triggers = ['custcol_margen_desc_solicitado', 'quantity', 'item', 'price', 'rate'];
-        if (!triggers.includes(fieldId)) return;
-
-        const itemType = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'itemtype' });
-        const descSolicitado = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_desc_solicitado' })) || 0; // (Ajustar ID del campo)
-
-        // Filtro de exclusión temprana
-        if (itemType === 'Group' || itemType === 'Kit' || itemType === 'EndGroup' || descSolicitado === 0) {
+        if (fieldId === 'custbody_termino_entrega') {
+            handleTermsChange(rec);
             return;
         }
 
-        const params = {
-            precioBase: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'rate' })) || 0,
-            margenEstandar: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_estandar' })) || 0, // (Ajustar ID del campo)
-            descMargenSolicitado: descSolicitado,
-            descMargenServicio: globalState.reduccionServicioActual,
-            margenMinimoItem: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_minimo_item' })) || 0, // (Ajustar ID del campo)
-            limiteCliente: globalState.limiteCliente,
-            limiteUsuario: globalState.limiteUsuario
-        };
-
-        const result = core.validateMarginRule(params);
-
-        if (result.isValid) {
-            // (Ajustar ID del campo)
-            rec.setCurrentSublistValue({
-                sublistId: 'item',
-                fieldId: 'price',
-                value: -1,
-                ignoreFieldChange: true // Previene loop de ejecución de fieldChanged
-            });
-
-            // Inyección del precio unitario procesado
-            rec.setCurrentSublistValue({
-                sublistId: 'item',
-                fieldId: 'rate',
-                value: result.finalPrice,
-                ignoreFieldChange: true // Previene loop de ejecución de fieldChanged
-            });
-
-            // (Ajustar ID del campo)
-            rec.setCurrentSublistValue({
-                sublistId: 'item',
-                fieldId: 'custcol_margen_aplicado',
-                value: result.appliedMargin,
-                ignoreFieldChange: true
-            });
+        // Si es cambio a nivel de línea en la sublista de artículos
+        if (sublistId === 'item') {
+            evaluateLineRules(rec, fieldId);
         }
     };
 
     /**
-     * Realiza el bloqueo final antes de permitir que la línea ingrese al sistema.
+     * GATILLO 4: Bloqueo final antes de permitir que la línea ingrese al sistema.
      */
     const validateLine = (context) => {
         const { currentRecord: rec, sublistId } = context;
 
         if (sublistId !== 'item') return true;
 
-        const itemType = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'itemtype' });
-        const descSolicitado = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_desc_solicitado' })) || 0; // (Ajustar ID del campo)
+        // Silenciar bloqueos durante el auto-ajuste iterativo
+        if (globalState.isRecalculating) return true;
 
-        // Filtro de exclusión
+        const itemType = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'itemtype' });
+        const descSolicitado = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_desc_solicitado' })) || 0;
+
         if (itemType === 'Group' || itemType === 'Kit' || itemType === 'EndGroup' || descSolicitado === 0) {
             return true;
         }
 
         const params = {
             precioBase: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'rate' })) || 0,
-            margenEstandar: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_estandar' })) || 0, // (Ajustar ID del campo)
+            margenEstandar: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_estandar' })) || 0,
             descMargenSolicitado: descSolicitado,
             descMargenServicio: globalState.reduccionServicioActual,
-            margenMinimoItem: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_minimo_item' })) || 0, // (Ajustar ID del campo)  
+            limiteArticulo: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_maxdiscount_margin_percent' })) || 0,
             limiteCliente: globalState.limiteCliente,
             limiteUsuario: globalState.limiteUsuario
         };
@@ -169,16 +83,207 @@ define(['N/ui/dialog', 'N/currentRecord', './CM_Margin_System_Core'], (dialog, c
         const result = core.validateMarginRule(params);
 
         if (!result.isValid) {
-            // Genera la alerta asíncrona de NetSuite
             dialog.alert({
                 title: 'Restricción de Margen Comercial',
                 message: result.errorMessage
             });
-            // Bloquea síncronamente el commit de la línea
             return false;
         }
 
         return true;
+    };
+
+    // ========================================================================
+    // FUNCIONES AUXILIARES (HELPERS)
+    // ========================================================================
+
+    /**
+     * Maneja el cambio de cliente obteniendo su límite y los niveles de servicio asociados.
+     * Implementa Promise Chaining para cruzar registros y previene race conditions.
+     */
+    const handleCustomerChange = (rec) => {
+        const customerId = rec.getValue({ fieldId: 'entity' });
+        if (!customerId) {
+            globalState.limiteCliente = 0;
+            globalState.nivelesEnvio = { noEnvio: 0, envioHoy: 0, envioDias: 0 };
+            return;
+        }
+
+        const termsField = rec.getField({ fieldId: 'custbody_termino_entrega' });
+        if (termsField) termsField.isDisabled = true; // Prevención de Race Condition
+
+        // PASO 1: Buscar datos directamente en el Cliente
+        search.lookupFields.promise({
+            type: search.Type.CUSTOMER,
+            id: customerId,
+            columns: [
+                'custentity_limite_desc_cliente', // <-- ID SUPUESTO: Ajustar al ID real de tu campo de límite en el cliente
+                'custentity_custrec_service_level'
+            ]
+        }).then((customerData) => {
+            // Asignación de Límite de Cliente (Solución a omisión)
+            globalState.limiteCliente = parseFloat(customerData.custentity_limite_desc_cliente) || 0;
+
+            // Extraer de forma segura el Internal ID del Custom Record vinculado
+            const serviceLevelField = customerData.custentity_custrec_service_level;
+            const serviceLevelId = (serviceLevelField && serviceLevelField.length > 0)
+                ? serviceLevelField[0].value
+                : null;
+
+            if (!serviceLevelId) {
+                // Si el cliente no tiene un nivel de servicio asignado, limpiamos la caché
+                globalState.nivelesEnvio = { noEnvio: 0, envioHoy: 0, envioDias: 0 };
+                console.log('[CM_DEBUG] Cliente sin Nivel de Servicio asignado. Límite de cliente:', globalState.limiteCliente);
+                if (termsField) termsField.isDisabled = false;
+                return Promise.reject('NO_SERVICE_LEVEL'); // Salida temprana limpia
+            }
+
+            // PASO 2: Buscar los porcentajes en el Custom Record usando el ID obtenido
+            return search.lookupFields.promise({
+                type: 'customrecord_margin_system_lvl_service',
+                id: serviceLevelId,
+                columns: ['custrecord_serv_lvl_noenvio', 'custrecord_serv_lvl_enviohoy', 'custrecord_serv_lvl_enviodias']
+            });
+
+        }).then((serviceData) => {
+            if (serviceData) {
+                globalState.nivelesEnvio = {
+                    noEnvio: parseFloat(serviceData.custrecord_serv_lvl_noenvio) || 0,
+                    envioHoy: parseFloat(serviceData.custrecord_serv_lvl_enviohoy) || 0,
+                    envioDias: parseFloat(serviceData.custrecord_serv_lvl_enviodias) || 0
+                };
+                console.log('[CM_DEBUG] Promesas resueltas. Límite Cliente:', globalState.limiteCliente, '| Niveles:', globalState.nivelesEnvio);
+            }
+            if (termsField) termsField.isDisabled = false;
+
+        }).catch((e) => {
+            if (e !== 'NO_SERVICE_LEVEL') {
+                console.error('Error obteniendo datos del cliente/servicio:', e);
+            }
+            if (termsField) termsField.isDisabled = false;
+        });
+    };
+
+    /**
+     * Evalúa el impacto al cambiar el término de entrega. 
+     * Lanza advertencias y controla el flujo de recálculo o rollback.
+     */
+    const handleTermsChange = (rec) => {
+        const terminoSeleccionado = rec.getValue({ fieldId: 'custbody_termino_entrega' });
+        let nuevaReduccion = 0;
+
+        // Mapeo exacto según XML: 1=HOY, 2=SIN ENVIO, 3=3 DIAS
+        if (terminoSeleccionado === '1') {
+            nuevaReduccion = globalState.nivelesEnvio.envioHoy;
+        } else if (terminoSeleccionado === '2') {
+            nuevaReduccion = globalState.nivelesEnvio.noEnvio;
+        } else if (terminoSeleccionado === '3') {
+            nuevaReduccion = globalState.nivelesEnvio.envioDias;
+        }
+
+        const lineCount = rec.getLineCount({ sublistId: 'item' });
+
+        // Escenario A: Reducción es más estricta y existen líneas
+        if (nuevaReduccion > globalState.reduccionServicioActual && lineCount > 0) {
+            console.log(`[CM_DEBUG] Entrada al bloque de recálculo. Reducción vieja: ${globalState.reduccionServicioActual} | Nueva: ${nuevaReduccion}`);
+
+            dialog.confirm({
+                title: 'Cambio de Condiciones',
+                message: 'Este término reduce la capacidad de descuento. Los precios se recalcularán al nuevo límite permitido. ¿Desea continuar?'
+            }).then((success) => {
+                if (success) {
+                    processLineRecalculation(rec, nuevaReduccion, terminoSeleccionado, lineCount);
+                } else {
+                    // Rechazado: Ejecutar rollback al valor anterior.
+                    // Se envuelve en setTimeout a 0ms para ceder el hilo al DOM de NetSuite y evitar "ghosting" visual en el dropdown.
+                    setTimeout(() => {
+                        rec.setValue({
+                            fieldId: 'custbody_termino_entrega',
+                            value: globalState.terminoEntregaAnterior,
+                            ignoreFieldChange: true
+                        });
+                        console.log('[CM_DEBUG] Rollback de término de entrega ejecutado vía setTimeout.');
+                    }, 0);
+                }
+            });
+        }
+        // Escenario B: Igual o más flexible
+        else {
+            globalState.reduccionServicioActual = nuevaReduccion;
+            globalState.terminoEntregaAnterior = terminoSeleccionado;
+            rec.setValue({ fieldId: 'custbody_hidden_serv_lvl_reduction', value: globalState.reduccionServicioActual, ignoreFieldChange: true });
+        }
+    };
+
+    /**
+     * Realiza el recálculo iterativo solo sobre líneas que violan la nueva regla de negocio.
+     */
+    const processLineRecalculation = (rec, nuevaReduccion, nuevoTermino, lineCount) => {
+        globalState.isRecalculating = true;
+        globalState.reduccionServicioActual = nuevaReduccion;
+        globalState.terminoEntregaAnterior = nuevoTermino;
+
+        rec.setValue({ fieldId: 'custbody_hidden_serv_lvl_reduction', value: globalState.reduccionServicioActual, ignoreFieldChange: true });
+
+        for (let i = 0; i < lineCount; i++) {
+            // 1. Lectura de variables de la línea sin seleccionarla
+            const descSolicitado = parseFloat(rec.getSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_desc_solicitado', line: i })) || 0;
+            const limiteArticulo = parseFloat(rec.getSublistValue({ sublistId: 'item', fieldId: 'custcol_maxdiscount_margin_percent', line: i })) || 0;
+
+            // 2. Cálculo de cascada: ¿Quién es el cuello de botella para esta línea específica?
+            const limiteClienteReducido = globalState.limiteCliente * (1 - nuevaReduccion);
+            const nuevoLimitePermitido = Math.min(limiteArticulo, limiteClienteReducido, globalState.limiteUsuario);
+
+            // 3. Evaluar y corregir si el descuento solicitado excede el nuevo límite real
+            if (descSolicitado > nuevoLimitePermitido) {
+                rec.selectLine({ sublistId: 'item', line: i });
+
+                rec.setCurrentSublistValue({
+                    sublistId: 'item',
+                    fieldId: 'custcol_margen_desc_solicitado',
+                    value: nuevoLimitePermitido,
+                    ignoreFieldChange: false // false para que dispare el fieldChanged y recalcule price/rate
+                });
+
+                console.log(`[CM_DEBUG] Antes de commitLine - Línea: ${i} | Descuento ajustado de ${descSolicitado} a límite máximo: ${nuevoLimitePermitido}`);
+                rec.commitLine({ sublistId: 'item' });
+                console.log(`[CM_DEBUG] Después de commitLine - Línea: ${i}`);
+            }
+        }
+        globalState.isRecalculating = false;
+    };
+
+    /**
+     * Aplica reglas de negocio e inyecta precios base y rate al modificar descriptores de margen a nivel línea.
+     */
+    const evaluateLineRules = (rec, fieldId) => {
+        const triggers = ['custcol_margen_desc_solicitado', 'quantity', 'item', 'price', 'rate'];
+        if (!triggers.includes(fieldId)) return;
+
+        const itemType = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'itemtype' });
+        const descSolicitado = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_desc_solicitado' })) || 0;
+
+        if (itemType === 'Group' || itemType === 'Kit' || itemType === 'EndGroup' || descSolicitado === 0) {
+            return;
+        }
+
+        const params = {
+            precioBase: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'rate' })) || 0,
+            margenEstandar: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_estandar' })) || 0,
+            descMargenSolicitado: descSolicitado,
+            descMargenServicio: globalState.reduccionServicioActual,
+            limiteArticulo: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_maxdiscount_margin_percent' })) || 0,
+            limiteCliente: globalState.limiteCliente,
+            limiteUsuario: globalState.limiteUsuario
+        };
+
+        const result = core.validateMarginRule(params);
+
+        if (result.isValid) {
+            rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'price', value: -1, ignoreFieldChange: true });
+            rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'rate', value: result.finalPrice, ignoreFieldChange: true });
+            rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_aplicado', value: result.appliedMargin, ignoreFieldChange: true });
+        }
     };
 
     return {

@@ -93,29 +93,25 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
                 // Límite máximo del artículo
                 const limiteArticulo = parseFloat(newRecord.getSublistValue({
                     sublistId: 'item',
-                    fieldId: 'custcol_max_discount_item', // (Ajustar ID del campo)
+                    fieldId: 'custcol_maxdiscount_margin_percent', // (Ajustar ID del campo)
                     line: i
                 })) || 0;
 
                 // --- MATEMÁTICA Y VALIDACIÓN EN CASCADA ---
                 
-                // Regla A: Capacidad real del artículo tras aplicar la penalización por servicio
-                const capacidadRealArticulo = limiteArticulo - reduccionServicio;
-
-                if (descSolicitado > capacidadRealArticulo) {
+                if (descSolicitado > limiteArticulo) {
                     throw error.create({
                         name: 'ERR_CAPACIDAD_ARTICULO_EXCEDIDA',
-                        message: `Línea ${i + 1}: El descuento solicitado (${descSolicitado}%) excede la capacidad permitida del artículo tras aplicar el nivel de servicio (${capacidadRealArticulo}%).`,
-                        notifyOff: true
+                        message: `Línea ${i + 1}: El descuento (${(descSolicitado * 100).toFixed(2)}%) supera la capacidad máxima de este artículo.`,
                     });
                 }
 
                 // Regla B: Validamos contra el Límite del Cliente
-                if (descSolicitado > limiteCliente) {
+                const limiteClienteReducido = limiteCliente * (1 - reduccionServicio);
+                if (descSolicitado > limiteClienteReducido) {
                     throw error.create({
                         name: 'ERR_LIMITE_CLIENTE_EXCEDIDO',
-                        message: `Línea ${i + 1}: El descuento solicitado (${descSolicitado}%) excede el límite máximo contractual permitido para este cliente (${limiteCliente}%).`,
-                        notifyOff: true
+                        message: `Línea ${i + 1}: El descuento supera el límite del cliente permitido por las condiciones de envío (${(limiteClienteReducido * 100).toFixed(2)}%).`,
                     });
                 }
 
@@ -123,8 +119,7 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
                 if (descSolicitado > limiteUsuario) {
                     throw error.create({
                         name: 'ERR_LIMITE_USUARIO_EXCEDIDO',
-                        message: `Línea ${i + 1}: El descuento solicitado (${descSolicitado}%) excede tu límite de autorización personal (${limiteUsuario}%).`,
-                        notifyOff: true
+                        message: `Línea ${i + 1}: El descuento (${(descSolicitado * 100).toFixed(2)}%) excede tu límite de autorización personal (${(limiteUsuario * 100).toFixed(2)}%).`,
                     });
                 }
             }
