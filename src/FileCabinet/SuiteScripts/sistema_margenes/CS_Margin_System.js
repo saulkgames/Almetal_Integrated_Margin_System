@@ -24,7 +24,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
         const rec = context.currentRecord;
 
         globalState.limiteUsuario = parseFloat(rec.getValue({ fieldId: 'custbody_curr_user_discount_limit' })) || 0;
-        globalState.terminoEntregaAnterior = rec.getValue({ fieldId: 'custbody_termino_entrega' });
+        globalState.terminoEntregaAnterior = rec.getValue({ fieldId: 'custbody_freigth_service_terms' });
 
         console.log('[CM_DEBUG] pageInit completado. Estado inicial:', JSON.stringify(globalState));
     };
@@ -41,7 +41,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
             return;
         }
 
-        if (fieldId === 'custbody_termino_entrega') {
+        if (fieldId === 'custbody_freigth_service_terms') {
             handleTermsChange(rec);
             return;
         }
@@ -64,7 +64,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
         if (globalState.isRecalculating) return true;
 
         const itemType = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'itemtype' });
-        const descSolicitado = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_desc_solicitado' })) || 0;
+        const descSolicitado = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_mergn_desc_solicitado' })) || 0;
 
         if (itemType === 'Group' || itemType === 'Kit' || itemType === 'EndGroup' || descSolicitado === 0) {
             return true;
@@ -109,7 +109,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
             return;
         }
 
-        const termsField = rec.getField({ fieldId: 'custbody_termino_entrega' });
+        const termsField = rec.getField({ fieldId: 'custbody_freigth_service_terms' });
         if (termsField) termsField.isDisabled = true; // Prevención de Race Condition
 
         // PASO 1: Buscar datos directamente en el Cliente
@@ -117,12 +117,13 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
             type: search.Type.CUSTOMER,
             id: customerId,
             columns: [
-                'custentity_limite_desc_cliente', // <-- ID SUPUESTO: Ajustar al ID real de tu campo de límite en el cliente
+                'custentity_maxdiscount_margin_percent',
                 'custentity_custrec_service_level'
             ]
         }).then((customerData) => {
             // Asignación de Límite de Cliente (Solución a omisión)
-            globalState.limiteCliente = parseFloat(customerData.custentity_limite_desc_cliente) || 0;
+            globalState.limiteCliente = parseFloat(customerData.custentity_maxdiscount_margin_percent) || 0;
+            rec.setValue({ fieldId: 'custbody_curr_cust_discount_limit', value: globalState.limiteCliente });
 
             // Extraer de forma segura el Internal ID del Custom Record vinculado
             const serviceLevelField = customerData.custentity_custrec_service_level;
@@ -137,7 +138,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
                 if (termsField) termsField.isDisabled = false;
                 return Promise.reject('NO_SERVICE_LEVEL'); // Salida temprana limpia
             }
-
+            rec.setValue({ fieldId: 'custbody_customer_level_service_rec', value: serviceLevelId });
             // PASO 2: Buscar los porcentajes en el Custom Record usando el ID obtenido
             return search.lookupFields.promise({
                 type: 'customrecord_margin_system_lvl_service',
@@ -169,7 +170,8 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
      * Lanza advertencias y controla el flujo de recálculo o rollback.
      */
     const handleTermsChange = (rec) => {
-        const terminoSeleccionado = rec.getValue({ fieldId: 'custbody_termino_entrega' });
+        console.log('[CM_DEBUG] Cambio detectado en término de entrega. Evaluando impacto...');
+        const terminoSeleccionado = rec.getValue({ fieldId: 'custbody_freigth_service_terms' });
         let nuevaReduccion = 0;
 
         // Mapeo exacto según XML: 1=HOY, 2=SIN ENVIO, 3=3 DIAS
@@ -211,7 +213,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
         else {
             globalState.reduccionServicioActual = nuevaReduccion;
             globalState.terminoEntregaAnterior = terminoSeleccionado;
-            rec.setValue({ fieldId: 'custbody_hidden_serv_lvl_reduction', value: globalState.reduccionServicioActual, ignoreFieldChange: true });
+            rec.setValue({ fieldId: 'custbody_cust_serv_lvl', value: globalState.reduccionServicioActual, ignoreFieldChange: true });
         }
     };
 
@@ -223,11 +225,11 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
         globalState.reduccionServicioActual = nuevaReduccion;
         globalState.terminoEntregaAnterior = nuevoTermino;
 
-        rec.setValue({ fieldId: 'custbody_hidden_serv_lvl_reduction', value: globalState.reduccionServicioActual, ignoreFieldChange: true });
+        rec.setValue({ fieldId: 'custbody_cust_serv_lvl', value: globalState.reduccionServicioActual, ignoreFieldChange: true });
 
         for (let i = 0; i < lineCount; i++) {
             // 1. Lectura de variables de la línea sin seleccionarla
-            const descSolicitado = parseFloat(rec.getSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_desc_solicitado', line: i })) || 0;
+            const descSolicitado = parseFloat(rec.getSublistValue({ sublistId: 'item', fieldId: 'custcol_mergn_desc_solicitado', line: i })) || 0;
             const limiteArticulo = parseFloat(rec.getSublistValue({ sublistId: 'item', fieldId: 'custcol_maxdiscount_margin_percent', line: i })) || 0;
 
             // 2. Cálculo de cascada: ¿Quién es el cuello de botella para esta línea específica?
@@ -240,7 +242,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
 
                 rec.setCurrentSublistValue({
                     sublistId: 'item',
-                    fieldId: 'custcol_margen_desc_solicitado',
+                    fieldId: 'custcol_mergn_desc_solicitado',
                     value: nuevoLimitePermitido,
                     ignoreFieldChange: false // false para que dispare el fieldChanged y recalcule price/rate
                 });
@@ -257,26 +259,32 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
      * Aplica reglas de negocio e inyecta precios base y rate al modificar descriptores de margen a nivel línea.
      */
     const evaluateLineRules = (rec, fieldId) => {
-        const triggers = ['custcol_margen_desc_solicitado', 'quantity', 'item', 'price', 'rate'];
+        const triggers = ['custcol_mergn_desc_solicitado', 'quantity', 'item', 'price', 'rate'];
         if (!triggers.includes(fieldId)) return;
 
         const itemType = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'itemtype' });
-        const descSolicitado = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_desc_solicitado' })) || 0;
+        const descSolicitado = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_mergn_desc_solicitado' })) || 0;
 
         if (itemType === 'Group' || itemType === 'Kit' || itemType === 'EndGroup' || descSolicitado === 0) {
             return;
         }
-
+        
+        let descuento = descSolicitado / 100;
+        let itemLimit = globalState.limiteCliente / 100;
+        let userLimit = globalState.limiteUsuario / 100;
+        let serviceReduction = globalState.reduccionServicioActual / 100;
+        
         const params = {
             precioBase: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'rate' })) || 0,
             margenEstandar: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_estandar' })) || 0,
-            descMargenSolicitado: descSolicitado,
-            descMargenServicio: globalState.reduccionServicioActual,
-            limiteArticulo: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_maxdiscount_margin_percent' })) || 0,
-            limiteCliente: globalState.limiteCliente,
-            limiteUsuario: globalState.limiteUsuario
+            descMargenSolicitado: descuento,
+            descMargenServicio: serviceReduction,
+            limiteArticulo: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_maxdiscount_margin_percent' })) / 100 || 0,
+            limiteCliente: itemLimit,
+            limiteUsuario: userLimit
         };
 
+        console.log('[CM_DEBUG] Evaluando reglas de línea. Parámetros:', JSON.stringify(params));
         const result = core.validateMarginRule(params);
 
         if (result.isValid) {

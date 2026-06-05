@@ -56,7 +56,7 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
         try {
             // 1. Obtener variables de cabecera en memoria (Ajustar ID de campos)
             const limiteUsuario = parseFloat(newRecord.getValue({ fieldId: 'custbody_curr_user_discount_limit' })) || 0;
-            const reduccionServicio = parseFloat(newRecord.getValue({ fieldId: 'custbody_hidden_serv_lvl_reduction' })) || 0; 
+            const reduccionServicio = parseFloat(newRecord.getValue({ fieldId: 'custbody_customer_level_service_rec' })) || 0; 
             
             // NUEVO: Extraer el límite del Cliente de forma eficiente (1 Unidad de Gobernanza)
             let limiteCliente = 0;
@@ -66,9 +66,9 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
                 const customerData = search.lookupFields({
                     type: search.Type.CUSTOMER,
                     id: customerId,
-                    columns: ['custentity_limite_desc_cliente'] // <-- (Ajustar ID del campo)
+                    columns: ['custentity_maxdiscount_margin_percent', ] 
                 });
-                limiteCliente = parseFloat(customerData.custentity_limite_desc_cliente) || 0;
+                limiteCliente = parseFloat(customerData.custentity_maxdiscount_margin_percent) || 0;
             }
             
             const lineCount = newRecord.getLineCount({ sublistId: 'item' });
@@ -82,7 +82,7 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
 
                 const descSolicitado = parseFloat(newRecord.getSublistValue({
                     sublistId: 'item',
-                    fieldId: 'custcol_margen_desc_solicitado', // (Ajustar ID del campo)
+                    fieldId: 'custcol_mergn_desc_solicitado', 
                     line: i
                 })) || 0;
 
@@ -91,7 +91,7 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
                 // Límite máximo del artículo
                 const limiteArticulo = parseFloat(newRecord.getSublistValue({
                     sublistId: 'item',
-                    fieldId: 'custcol_maxdiscount_margin_percent', // (Ajustar ID del campo)
+                    fieldId: 'custcol_maxdiscount_margin_percent',
                     line: i
                 })) || 0;
 
