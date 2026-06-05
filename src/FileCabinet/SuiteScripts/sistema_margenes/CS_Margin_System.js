@@ -72,6 +72,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
 
         const params = {
             precioBase: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'rate' })) || 0,
+            costo: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_precio_sin_margen' })) || 0, 
             margenEstandar: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_estandar' })) || 0,
             descMargenSolicitado: descSolicitado,
             descMargenServicio: globalState.reduccionServicioActual,
@@ -276,6 +277,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
         
         const params = {
             precioBase: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'rate' })) || 0,
+            costo: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_precio_sin_margen' })) || 0, 
             margenEstandar: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_estandar' })) || 0,
             descMargenSolicitado: descuento,
             descMargenServicio: serviceReduction,

@@ -9,6 +9,7 @@ define(['N/error', 'N/log'], (error, log) => {
     /**
      * @typedef {Object} MarginParams
      * @property {number} precioBase - Precio unitario base de la línea.
+     * @property {number} costo - Costo del artículo, utilizado para cálculos internos.
      * @property {number} margenEstandar - Margen estándar en porcentaje decimal (ej. 0.20 para 20%).
      * @property {number} descMargenSolicitado - Descuento solicitado por el usuario.
      * @property {number} descMargenServicio - Descuento otorgado por nivel de servicio.
@@ -24,6 +25,7 @@ define(['N/error', 'N/log'], (error, log) => {
      */
     const validateMarginRule = (params) => {
         const precioBase = parseFloat(params.precioBase) || 0;
+        const costo = parseFloat(params.costo) || 0;
         const margenEstandar = parseFloat(params.margenEstandar) || 0;
         const descMargenSolicitado = parseFloat(params.descMargenSolicitado) || 0;
         const descMargenServicio = parseFloat(params.descMargenServicio) || 0;
@@ -31,23 +33,9 @@ define(['N/error', 'N/log'], (error, log) => {
         const limiteCliente = parseFloat(params.limiteCliente) || 0;
         const limiteUsuario = parseFloat(params.limiteUsuario) || 0;
 
-        const costo = precioBase * (1 - margenEstandar);
-        const margenAplicado = margenEstandar - (margenEstandar * descMargenSolicitado);
-
-        if (margenAplicado >= 1) {
-            throw error.create({
-                name: 'MATH_DIV_BY_ZERO_PREVENTION',
-                message: `Cálculo abortado. El margen aplicado resultó en ${margenAplicado}, lo que causaría una división por cero.`,
-                notifyOff: true
-            });
-        }
-
-        let precioFinal = costo * (1 / (1 - margenAplicado));
-        precioFinal = Math.round((precioFinal + Number.EPSILON) * 100) / 100;
-
         let isValid = true;
         let errorMessage = '';
-
+        
         const limiteClienteReducido = limiteCliente * (1 - descMargenServicio);
 
         if (descMargenSolicitado > limiteArticulo) {
@@ -67,6 +55,21 @@ define(['N/error', 'N/log'], (error, log) => {
                 details: `Validación fallida. Razón: ${errorMessage} | Margen Calculado: ${margenAplicado.toFixed(4)} | Descuento Solicitado: ${descMargenSolicitado.toFixed(4)}`
             });
         }
+
+        const margenAplicado = margenEstandar - (margenEstandar * descMargenSolicitado);
+
+        if (margenAplicado <= 0) {
+            throw error.create({
+                name: 'MATH_DIV_BY_ZERO_PREVENTION',
+                message: `Cálculo abortado. El margen aplicado resultó en ${margenAplicado}, lo que causaría una división por cero.`,
+                notifyOff: true
+            });
+        }
+
+        let precioFinal = costo * (100 / (100 - margenAplicado));
+        precioFinal = Math.round((precioFinal + Number.EPSILON) * 100) / 100;
+
+        
 
         return {
             isValid,
