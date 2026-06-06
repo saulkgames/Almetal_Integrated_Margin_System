@@ -80,20 +80,20 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
                 // Exclusión de artículos que no aplican
                 if (itemType === 'Group' || itemType === 'Kit' || itemType === 'EndGroup') continue;
 
-                const descSolicitado = parseFloat(newRecord.getSublistValue({
+                const descSolicitado = (parseFloat(newRecord.getSublistValue({
                     sublistId: 'item',
                     fieldId: 'custcol_mergn_desc_solicitado', 
                     line: i
-                })) || 0;
+                })) || 0) / 100;
 
                 if (descSolicitado === 0) continue;
 
                 // Límite máximo del artículo
-                const limiteArticulo = parseFloat(newRecord.getSublistValue({
+                const limiteArticulo = (parseFloat(newRecord.getSublistValue({
                     sublistId: 'item',
                     fieldId: 'custcol_maxdiscount_margin_percent',
                     line: i
-                })) || 0;
+                })) || 0) / 100;
 
                 // --- MATEMÁTICA Y VALIDACIÓN EN CASCADA ---
                 

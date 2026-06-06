@@ -9,7 +9,6 @@ define(['N/error', 'N/log'], (error, log) => {
     /**
      * @typedef {Object} MarginParams
      * @property {number} precioBase - Precio unitario base de la línea.
-     * @property {number} costo - Costo del artículo, utilizado para cálculos internos.
      * @property {number} margenEstandar - Margen estándar en porcentaje decimal (ej. 0.20 para 20%).
      * @property {number} descMargenSolicitado - Descuento solicitado por el usuario.
      * @property {number} descMargenServicio - Descuento otorgado por nivel de servicio.
@@ -25,7 +24,6 @@ define(['N/error', 'N/log'], (error, log) => {
      */
     const validateMarginRule = (params) => {
         const precioBase = parseFloat(params.precioBase) || 0;
-        const costo = parseFloat(params.costo) || 0;
         const margenEstandar = parseFloat(params.margenEstandar) || 0;
         const descMargenSolicitado = parseFloat(params.descMargenSolicitado) || 0;
         const descMargenServicio = parseFloat(params.descMargenServicio) || 0;
@@ -35,10 +33,11 @@ define(['N/error', 'N/log'], (error, log) => {
 
         let isValid = true;
         let errorMessage = '';
-        
-        const limiteClienteReducido = limiteCliente * (1 - descMargenServicio);
 
+        const limiteClienteReducido = limiteCliente * (1 - descMargenServicio);
+        
         if (descMargenSolicitado > limiteArticulo) {
+
             isValid = false;
             errorMessage = `Nivel 1: El descuento (${(descMargenSolicitado * 100).toFixed(2)}%) supera la capacidad máxima de este artículo.`;
         } else if (descMargenSolicitado > limiteClienteReducido) {
@@ -55,7 +54,7 @@ define(['N/error', 'N/log'], (error, log) => {
                 details: `Validación fallida. Razón: ${errorMessage} | Margen Calculado: ${margenAplicado.toFixed(4)} | Descuento Solicitado: ${descMargenSolicitado.toFixed(4)}`
             });
         }
-
+        const costo = (precioBase * (100 - margenEstandar)) / 100;
         const margenAplicado = margenEstandar - (margenEstandar * descMargenSolicitado);
 
         if (margenAplicado <= 0) {
@@ -68,6 +67,7 @@ define(['N/error', 'N/log'], (error, log) => {
 
         let precioFinal = costo * (100 / (100 - margenAplicado));
         precioFinal = Math.round((precioFinal + Number.EPSILON) * 100) / 100;
+        
 
         
 

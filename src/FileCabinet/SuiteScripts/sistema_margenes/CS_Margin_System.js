@@ -46,9 +46,51 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
             return;
         }
 
-        // Si es cambio a nivel de línea en la sublista de artículos
         if (sublistId === 'item') {
-            evaluateLineRules(rec, fieldId);
+            // Solo escuchamos cambios manuales de precio o descuentos
+            const validTriggers = ['custcol_mergn_desc_solicitado', 'price', 'rate'];
+            if (validTriggers.includes(fieldId)) {
+                evaluateLineRules(rec);
+            }
+        }
+    };
+
+    /**
+     * GATILLO 5: Evento que espera a que NetSuite cargue los precios/costos de la unidad.
+     * Implementa el Patrón de Reseteo propuesto por el usuario.
+     */
+    const postSourcing = (context) => {
+        const { currentRecord: rec, sublistId, fieldId } = context;
+
+        // Si el usuario cambia la unidad de medida (o cambia el artículo por completo)
+        if (sublistId === 'item' && (fieldId === 'units' || fieldId === 'item')) {
+            console.log('[CM_DEBUG] Cambio de unidad/artículo detectado. Reseteando estado de la línea...');
+
+            // 1. Reseteamos el descuento solicitado a 0 de forma silenciosa
+            rec.setCurrentSublistValue({
+                sublistId: 'item',
+                fieldId: 'custcol_mergn_desc_solicitado',
+                value: 0,
+                ignoreFieldChange: true // ignore true para evitar loops
+            });
+
+            // 2. Reseteamos el margen aplicado anterior a 0
+            rec.setCurrentSublistValue({
+                sublistId: 'item',
+                fieldId: 'custcol_margen_aplicado',
+                value: 0,
+                ignoreFieldChange: true
+            });
+
+            // 3. Forzamos a NetSuite a regresar al "Precio Base" (Internal ID: -1 es el estándar de NetSuite)
+            rec.setCurrentSublistValue({
+                sublistId: 'item',
+                fieldId: 'price',
+                value: 1,
+                ignoreFieldChange: false // false para que NetSuite cargue el precio nativo de la nueva unidad
+            });
+
+            console.log('[CM_DEBUG] Línea reseteada exitosamente con el precio base nativo de la nueva unidad.');
         }
     };
 
@@ -72,13 +114,12 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
 
         const params = {
             precioBase: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'rate' })) || 0,
-            costo: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_precio_sin_margen' })) || 0, 
             margenEstandar: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_estandar' })) || 0,
-            descMargenSolicitado: descSolicitado,
-            descMargenServicio: globalState.reduccionServicioActual,
-            limiteArticulo: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_maxdiscount_margin_percent' })) || 0,
-            limiteCliente: globalState.limiteCliente,
-            limiteUsuario: globalState.limiteUsuario
+            descMargenSolicitado: descSolicitado / 100,
+            descMargenServicio: globalState.reduccionServicioActual / 100,
+            limiteArticulo: (parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_maxdiscount_margin_percent' })) || 0) / 100,
+            limiteCliente: globalState.limiteCliente / 100,
+            limiteUsuario: globalState.limiteUsuario / 100
         };
 
         const result = core.validateMarginRule(params);
@@ -260,24 +301,20 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
      * Aplica reglas de negocio e inyecta precios base y rate al modificar descriptores de margen a nivel línea.
      */
     const evaluateLineRules = (rec, fieldId) => {
-        const triggers = ['custcol_mergn_desc_solicitado', 'quantity', 'item', 'price', 'rate'];
-        if (!triggers.includes(fieldId)) return;
-
         const itemType = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'itemtype' });
         const descSolicitado = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_mergn_desc_solicitado' })) || 0;
 
         if (itemType === 'Group' || itemType === 'Kit' || itemType === 'EndGroup' || descSolicitado === 0) {
             return;
         }
-        
+
         let descuento = descSolicitado / 100;
         let itemLimit = globalState.limiteCliente / 100;
         let userLimit = globalState.limiteUsuario / 100;
         let serviceReduction = globalState.reduccionServicioActual / 100;
-        
+
         const params = {
             precioBase: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'rate' })) || 0,
-            costo: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_precio_sin_margen' })) || 0, 
             margenEstandar: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_estandar' })) || 0,
             descMargenSolicitado: descuento,
             descMargenServicio: serviceReduction,
