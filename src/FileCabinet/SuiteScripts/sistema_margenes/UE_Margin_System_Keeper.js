@@ -2,7 +2,7 @@
  * @NApiVersion 2.1
  * @NScriptType UserEventScript
  * @description Guardián del Servidor: Inyección de Límite de Usuario y Validación de Reglas de Margen.
- * @appliedtorecord - SalesOrder, CashSale, Invoice, Estimate.
+ * @appliedtorecord - Estimate.
  * @author Saul Ivan Angulo Varela
  * @contact saul.angulo98@gmail.com
  * @version 1.0.0
@@ -58,7 +58,6 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
             const limiteUsuario = parseFloat(newRecord.getValue({ fieldId: 'custbody_curr_user_discount_limit' })) || 0;
             const reduccionServicio = parseFloat(newRecord.getValue({ fieldId: 'custbody_customer_level_service_rec' })) || 0; 
             
-            // NUEVO: Extraer el límite del Cliente de forma eficiente (1 Unidad de Gobernanza)
             let limiteCliente = 0;
             const customerId = newRecord.getValue({ fieldId: 'entity' });
             
@@ -77,7 +76,6 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
             for (let i = 0; i < lineCount; i++) {
                 const itemType = newRecord.getSublistValue({ sublistId: 'item', fieldId: 'itemtype', line: i });
                 
-                // Exclusión de artículos que no aplican
                 if (itemType === 'Group' || itemType === 'Kit' || itemType === 'EndGroup') continue;
 
                 const descSolicitado = (parseFloat(newRecord.getSublistValue({

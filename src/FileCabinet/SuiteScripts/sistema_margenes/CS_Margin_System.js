@@ -3,6 +3,12 @@
  * @NScriptType ClientScript
  * @NModuleScope SameAccount
  * @description Controlador de interfaz de usuario para inyección de precios, estado global y validación de reglas en líneas.
+ * @appliedtorecord - Estimate.
+ * @author Saul Ivan Angulo Varela
+ * @contact saul.angulo98@gmail.com
+ * @version 1.0.0
+ * @copyright Saul Angulo Development Services
+ * @RiotID - ares98
  */
 
 define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, core) => {
@@ -30,8 +36,8 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
     };
 
     /**
-     * GATILLO 2 y 3: Manejador central de cambios en cabecera y líneas.
-     * Delega la responsabilidad a funciones auxiliares (helpers) para mantener el código limpio.
+     * GATILLO 2: Manejador central de cambios en cabecera y líneas.
+     * EXCLUSIVO para interacciones manuales que NO requieren ir al servidor por datos maestros.
      */
     const fieldChanged = (context) => {
         const { currentRecord: rec, sublistId, fieldId } = context;
@@ -48,7 +54,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
 
         if (sublistId === 'item') {
             // Solo escuchamos cambios manuales de precio o descuentos
-            const validTriggers = ['custcol_mergn_desc_solicitado', 'price', 'rate'];
+            const validTriggers = ['custcol_mergn_desc_solicitado', 'price'];
             if (validTriggers.includes(fieldId)) {
                 evaluateLineRules(rec);
             }
@@ -56,41 +62,34 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
     };
 
     /**
-     * GATILLO 5: Evento que espera a que NetSuite cargue los precios/costos de la unidad.
-     * Implementa el Patrón de Reseteo propuesto por el usuario.
+     * GATILLO 3: Ejecutado DESPUÉS de que NetSuite trae datos del servidor (Sourcing).
+     * Ideal para reaccionar a cambios de artículo o unidad de medida sin congelar el DOM.
      */
     const postSourcing = (context) => {
         const { currentRecord: rec, sublistId, fieldId } = context;
 
-        // Si el usuario cambia la unidad de medida (o cambia el artículo por completo)
         if (sublistId === 'item' && (fieldId === 'units' || fieldId === 'item')) {
-            console.log('[CM_DEBUG] Cambio de unidad/artículo detectado. Reseteando estado de la línea...');
+            console.log(`[CM_DEBUG] postSourcing disparado para ${fieldId}. Cediendo hilo al navegador...`);
 
-            // 1. Reseteamos el descuento solicitado a 0 de forma silenciosa
-            rec.setCurrentSublistValue({
-                sublistId: 'item',
-                fieldId: 'custcol_mergn_desc_solicitado',
-                value: 0,
-                ignoreFieldChange: true // ignore true para evitar loops
-            });
+            // Cedemos el hilo de ejecución para que NetSuite termine de pintar la UI (rate, amount, etc.)
+            setTimeout(() => {
+                globalState.isRecalculating = true; // Bloqueamos triggers secundarios temporalmente
 
-            // 2. Reseteamos el margen aplicado anterior a 0
-            rec.setCurrentSublistValue({
-                sublistId: 'item',
-                fieldId: 'custcol_margen_aplicado',
-                value: 0,
-                ignoreFieldChange: true
-            });
-
-            // 3. Forzamos a NetSuite a regresar al "Precio Base" (Internal ID: -1 es el estándar de NetSuite)
-            rec.setCurrentSublistValue({
-                sublistId: 'item',
-                fieldId: 'price',
-                value: 1,
-                ignoreFieldChange: false // false para que NetSuite cargue el precio nativo de la nueva unidad
-            });
-
-            console.log('[CM_DEBUG] Línea reseteada exitosamente con el precio base nativo de la nueva unidad.');
+                try {
+                    // 1. Limpiamos los campos de descuento de forma silenciosa
+                    rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_mergn_desc_solicitado', value: '', ignoreFieldChange: true });
+                    rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_aplicado', value: '', ignoreFieldChange: true });
+                    
+                    // 2. Restauramos el nivel de precio a Base (Internal ID: 1)
+                    rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'price', value: 1, ignoreFieldChange: false });
+                    
+                    console.log('[CM_DEBUG] Línea reseteada exitosamente en postSourcing.');
+                } catch (e) {
+                    console.error('[CM_ERROR] Falla durante el reseteo en postSourcing:', e);
+                } finally {
+                    globalState.isRecalculating = false; // Liberamos el candado
+                }
+            }, 10); 
         }
     };
 
@@ -139,10 +138,6 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
     // FUNCIONES AUXILIARES (HELPERS)
     // ========================================================================
 
-    /**
-     * Maneja el cambio de cliente obteniendo su límite y los niveles de servicio asociados.
-     * Implementa Promise Chaining para cruzar registros y previene race conditions.
-     */
     const handleCustomerChange = (rec) => {
         const customerId = rec.getValue({ fieldId: 'entity' });
         if (!customerId) {
@@ -152,9 +147,8 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
         }
 
         const termsField = rec.getField({ fieldId: 'custbody_freigth_service_terms' });
-        if (termsField) termsField.isDisabled = true; // Prevención de Race Condition
+        if (termsField) termsField.isDisabled = true; 
 
-        // PASO 1: Buscar datos directamente en el Cliente
         search.lookupFields.promise({
             type: search.Type.CUSTOMER,
             id: customerId,
@@ -163,25 +157,22 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
                 'custentity_custrec_service_level'
             ]
         }).then((customerData) => {
-            // Asignación de Límite de Cliente (Solución a omisión)
             globalState.limiteCliente = parseFloat(customerData.custentity_maxdiscount_margin_percent) || 0;
             rec.setValue({ fieldId: 'custbody_curr_cust_discount_limit', value: globalState.limiteCliente });
 
-            // Extraer de forma segura el Internal ID del Custom Record vinculado
             const serviceLevelField = customerData.custentity_custrec_service_level;
             const serviceLevelId = (serviceLevelField && serviceLevelField.length > 0)
                 ? serviceLevelField[0].value
                 : null;
 
             if (!serviceLevelId) {
-                // Si el cliente no tiene un nivel de servicio asignado, limpiamos la caché
                 globalState.nivelesEnvio = { noEnvio: 0, envioHoy: 0, envioDias: 0 };
                 console.log('[CM_DEBUG] Cliente sin Nivel de Servicio asignado. Límite de cliente:', globalState.limiteCliente);
                 if (termsField) termsField.isDisabled = false;
-                return Promise.reject('NO_SERVICE_LEVEL'); // Salida temprana limpia
+                return Promise.reject('NO_SERVICE_LEVEL'); 
             }
             rec.setValue({ fieldId: 'custbody_customer_level_service_rec', value: serviceLevelId });
-            // PASO 2: Buscar los porcentajes en el Custom Record usando el ID obtenido
+            
             return search.lookupFields.promise({
                 type: 'customrecord_margin_system_lvl_service',
                 id: serviceLevelId,
@@ -207,16 +198,11 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
         });
     };
 
-    /**
-     * Evalúa el impacto al cambiar el término de entrega. 
-     * Lanza advertencias y controla el flujo de recálculo o rollback.
-     */
     const handleTermsChange = (rec) => {
         console.log('[CM_DEBUG] Cambio detectado en término de entrega. Evaluando impacto...');
         const terminoSeleccionado = rec.getValue({ fieldId: 'custbody_freigth_service_terms' });
         let nuevaReduccion = 0;
 
-        // Mapeo exacto según XML: 1=HOY, 2=SIN ENVIO, 3=3 DIAS
         if (terminoSeleccionado === '1') {
             nuevaReduccion = globalState.nivelesEnvio.envioHoy;
         } else if (terminoSeleccionado === '2') {
@@ -227,7 +213,6 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
 
         const lineCount = rec.getLineCount({ sublistId: 'item' });
 
-        // Escenario A: Reducción es más estricta y existen líneas
         if (nuevaReduccion > globalState.reduccionServicioActual && lineCount > 0) {
             console.log(`[CM_DEBUG] Entrada al bloque de recálculo. Reducción vieja: ${globalState.reduccionServicioActual} | Nueva: ${nuevaReduccion}`);
 
@@ -238,8 +223,6 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
                 if (success) {
                     processLineRecalculation(rec, nuevaReduccion, terminoSeleccionado, lineCount);
                 } else {
-                    // Rechazado: Ejecutar rollback al valor anterior.
-                    // Se envuelve en setTimeout a 0ms para ceder el hilo al DOM de NetSuite y evitar "ghosting" visual en el dropdown.
                     setTimeout(() => {
                         rec.setValue({
                             fieldId: 'custbody_termino_entrega',
@@ -251,7 +234,6 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
                 }
             });
         }
-        // Escenario B: Igual o más flexible
         else {
             globalState.reduccionServicioActual = nuevaReduccion;
             globalState.terminoEntregaAnterior = terminoSeleccionado;
@@ -259,9 +241,6 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
         }
     };
 
-    /**
-     * Realiza el recálculo iterativo solo sobre líneas que violan la nueva regla de negocio.
-     */
     const processLineRecalculation = (rec, nuevaReduccion, nuevoTermino, lineCount) => {
         globalState.isRecalculating = true;
         globalState.reduccionServicioActual = nuevaReduccion;
@@ -270,15 +249,12 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
         rec.setValue({ fieldId: 'custbody_cust_serv_lvl', value: globalState.reduccionServicioActual, ignoreFieldChange: true });
 
         for (let i = 0; i < lineCount; i++) {
-            // 1. Lectura de variables de la línea sin seleccionarla
             const descSolicitado = parseFloat(rec.getSublistValue({ sublistId: 'item', fieldId: 'custcol_mergn_desc_solicitado', line: i })) || 0;
             const limiteArticulo = parseFloat(rec.getSublistValue({ sublistId: 'item', fieldId: 'custcol_maxdiscount_margin_percent', line: i })) || 0;
 
-            // 2. Cálculo de cascada: ¿Quién es el cuello de botella para esta línea específica?
             const limiteClienteReducido = globalState.limiteCliente * (1 - nuevaReduccion);
             const nuevoLimitePermitido = Math.min(limiteArticulo, limiteClienteReducido, globalState.limiteUsuario);
 
-            // 3. Evaluar y corregir si el descuento solicitado excede el nuevo límite real
             if (descSolicitado > nuevoLimitePermitido) {
                 rec.selectLine({ sublistId: 'item', line: i });
 
@@ -286,20 +262,16 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
                     sublistId: 'item',
                     fieldId: 'custcol_mergn_desc_solicitado',
                     value: nuevoLimitePermitido,
-                    ignoreFieldChange: false // false para que dispare el fieldChanged y recalcule price/rate
+                    ignoreFieldChange: false 
                 });
 
-                console.log(`[CM_DEBUG] Antes de commitLine - Línea: ${i} | Descuento ajustado de ${descSolicitado} a límite máximo: ${nuevoLimitePermitido}`);
+                console.log(`[CM_DEBUG] Antes de commitLine - Línea: ${i} | Descuento ajustado a: ${nuevoLimitePermitido}`);
                 rec.commitLine({ sublistId: 'item' });
-                console.log(`[CM_DEBUG] Después de commitLine - Línea: ${i}`);
             }
         }
         globalState.isRecalculating = false;
     };
 
-    /**
-     * Aplica reglas de negocio e inyecta precios base y rate al modificar descriptores de margen a nivel línea.
-     */
     const evaluateLineRules = (rec, fieldId) => {
         const itemType = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'itemtype' });
         const descSolicitado = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_mergn_desc_solicitado' })) || 0;
@@ -336,6 +308,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
     return {
         pageInit,
         fieldChanged,
+        postSourcing, // Arquitectura corregida: Evento expuesto
         validateLine
     };
 });
