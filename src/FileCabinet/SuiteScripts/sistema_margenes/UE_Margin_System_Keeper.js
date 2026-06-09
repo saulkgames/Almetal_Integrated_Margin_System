@@ -41,7 +41,22 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
         } catch (e) {
             log.error({ title: 'Error en beforeLoad - Límite Usuario', details: e.message });
             // No bloqueamos la carga, solo registramos el error
+        }
+
+        if (context.type === context.UserEventType.VIEW && newRecord.type === 'estimate') {
+            const terminos = newRecord.getValue({ fieldId: 'custbody_freigth_service_terms' });
+            const form = context.form;
+
+            // 2 = SIN ENVIO
+            if (terminos === '2') {
+                form.removeButton({ id: 'salesord' }); // Bloquea pasar a Orden de Venta
             }
+            // 1 = HOY, 3 = 3 DIAS
+            else if (terminos === '1' || terminos === '3') {
+                form.removeButton({ id: 'cashsale' }); // Bloquea Venta de Contado
+                form.removeButton({ id: 'invoice' });  // Bloquea Factura Directa
+            }
+        }
     };
 
     /**
@@ -56,31 +71,31 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
         try {
             // 1. Obtener variables de cabecera en memoria (Ajustar ID de campos)
             const limiteUsuario = parseFloat(newRecord.getValue({ fieldId: 'custbody_curr_user_discount_limit' })) || 0;
-            const reduccionServicio = parseFloat(newRecord.getValue({ fieldId: 'custbody_customer_level_service_rec' })) || 0; 
-            
+            const reduccionServicio = parseFloat(newRecord.getValue({ fieldId: 'custbody_customer_level_service_rec' })) || 0;
+
             let limiteCliente = 0;
             const customerId = newRecord.getValue({ fieldId: 'entity' });
-            
+
             if (customerId) {
                 const customerData = search.lookupFields({
                     type: search.Type.CUSTOMER,
                     id: customerId,
-                    columns: ['custentity_maxdiscount_margin_percent', ] 
+                    columns: ['custentity_maxdiscount_margin_percent',]
                 });
                 limiteCliente = parseFloat(customerData.custentity_maxdiscount_margin_percent) || 0;
             }
-            
+
             const lineCount = newRecord.getLineCount({ sublistId: 'item' });
 
             // 2. Iterar sobre las líneas para validar la matriz matemática
             for (let i = 0; i < lineCount; i++) {
                 const itemType = newRecord.getSublistValue({ sublistId: 'item', fieldId: 'itemtype', line: i });
-                
+
                 if (itemType === 'Group' || itemType === 'Kit' || itemType === 'EndGroup') continue;
 
                 const descSolicitado = (parseFloat(newRecord.getSublistValue({
                     sublistId: 'item',
-                    fieldId: 'custcol_mergn_desc_solicitado', 
+                    fieldId: 'custcol_mergn_desc_solicitado',
                     line: i
                 })) || 0) / 100;
 
@@ -94,7 +109,7 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
                 })) || 0) / 100;
 
                 // --- MATEMÁTICA Y VALIDACIÓN EN CASCADA ---
-                
+
                 if (descSolicitado > limiteArticulo) {
                     throw error.create({
                         name: 'ERR_CAPACIDAD_ARTICULO_EXCEDIDA',
@@ -125,7 +140,7 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
             if (e.name === 'ERR_CAPACIDAD_ARTICULO_EXCEDIDA' || e.name === 'ERR_LIMITE_CLIENTE_EXCEDIDO' || e.name === 'ERR_LIMITE_USUARIO_EXCEDIDO') {
                 throw e;
             }
-            
+
             log.error({ title: 'Error crítico en validación beforeSubmit', details: e });
             throw error.create({
                 name: 'ERR_SISTEMA_MARGENES',
