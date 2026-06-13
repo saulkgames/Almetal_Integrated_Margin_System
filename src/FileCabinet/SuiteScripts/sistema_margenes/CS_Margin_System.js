@@ -63,33 +63,60 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
 
     /**
      * GATILLO 3: Ejecutado DESPUÉS de que NetSuite trae datos del servidor (Sourcing).
-     * Ideal para reaccionar a cambios de artículo o unidad de medida sin congelar el DOM.
+     * Arquitectura en Cascada: Dejamos que NetSuite termine de popular el Rate tras forzar el Nivel de Precio a 1.
      */
     const postSourcing = (context) => {
         const { currentRecord: rec, sublistId, fieldId } = context;
 
-        if (sublistId === 'item' && (fieldId === 'units' || fieldId === 'item')) {
-            console.log(`[CM_DEBUG] postSourcing disparado para ${fieldId}. Cediendo hilo al navegador...`);
+        if (sublistId !== 'item') return;
 
-            // Cedemos el hilo de ejecución para que NetSuite termine de pintar la UI (rate, amount, etc.)
-            setTimeout(() => {
-                globalState.isRecalculating = true; // Bloqueamos triggers secundarios temporalmente
+        // CASO A: Cambia el Artículo o la Unidad de Medida
+        if (fieldId === 'item' || fieldId === 'units') {
 
-                try {
-                    // 1. Limpiamos los campos de descuento de forma silenciosa
-                    rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_mergn_desc_solicitado', value: '', ignoreFieldChange: true });
-                    rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_aplicado', value: '', ignoreFieldChange: true });
-                    
-                    // 2. Restauramos el nivel de precio a Base (Internal ID: 1)
-                    rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'price', value: 1, ignoreFieldChange: false });
-                    
-                    console.log('[CM_DEBUG] Línea reseteada exitosamente en postSourcing.');
-                } catch (e) {
-                    console.error('[CM_ERROR] Falla durante el reseteo en postSourcing:', e);
-                } finally {
-                    globalState.isRecalculating = false; // Liberamos el candado
-                }
-            }, 10); 
+            const currentPriceLvl = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'price' });
+
+            // Si el precio está en Custom (-1) o cualquier otro, lo forzamos a Base (1)
+            if (currentPriceLvl != 1) {
+                console.log(`[CM_DEBUG] Forzando Nivel de Precio a 1 debido a cambio en ${fieldId}...`);
+                // Esto disparará una nueva llamada al servidor y volverá a entrar a postSourcing pero con fieldId === 'price'
+                rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'price', value: 1, ignoreFieldChange: false });
+                return; // Cortamos la ejecución aquí.
+            } else {
+                // Si ya estaba en 1, el rate es correcto. Procedemos a respaldar.
+                backupBasePrice(rec);
+            }
+        }
+
+        // CASO B: Respondiendo al forzado de Precio a 1 (La "Luz Verde")
+        else if (fieldId === 'price') {
+            const currentPriceLvl = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'price' });
+
+            // Si NetSuite ya terminó de cargar el Nivel Base (1), ahora sí el Rate es 100% confiable
+            if (currentPriceLvl == 1) {
+                console.log('[CM_DEBUG] Sourcing de Precio terminado. Respaldando Rate...');
+                backupBasePrice(rec);
+            }
+        }
+    };
+
+    /**
+     * Función Auxiliar para limpiar descuentos y guardar el precio nativo de forma segura.
+     */
+    const backupBasePrice = (rec) => {
+        globalState.isRecalculating = true; // Bloqueamos tus reglas de validación temporales
+        try {
+            // Ahora este 'rate' es 100% el precio base de la nueva unidad o artículo
+            const precioNativoOriginal = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'rate' })) || 0;
+
+            rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_mergn_desc_solicitado', value: '', ignoreFieldChange: true });
+            rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_aplicado', value: '', ignoreFieldChange: true });
+            rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_precio_sin_margen', value: precioNativoOriginal, ignoreFieldChange: true });
+
+            console.log(`[CM_DEBUG] Línea reseteada. Nuevo Precio de Respaldo: ${precioNativoOriginal}`);
+        } catch (e) {
+            console.error('[CM_ERROR] Falla durante el reseteo:', e);
+        } finally {
+            globalState.isRecalculating = false;
         }
     };
 
@@ -147,7 +174,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
         }
 
         const termsField = rec.getField({ fieldId: 'custbody_freigth_service_terms' });
-        if (termsField) termsField.isDisabled = true; 
+        if (termsField) termsField.isDisabled = true;
 
         search.lookupFields.promise({
             type: search.Type.CUSTOMER,
@@ -169,10 +196,10 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
                 globalState.nivelesEnvio = { noEnvio: 0, envioHoy: 0, envioDias: 0 };
                 console.log('[CM_DEBUG] Cliente sin Nivel de Servicio asignado. Límite de cliente:', globalState.limiteCliente);
                 if (termsField) termsField.isDisabled = false;
-                return Promise.reject('NO_SERVICE_LEVEL'); 
+                return Promise.reject('NO_SERVICE_LEVEL');
             }
             rec.setValue({ fieldId: 'custbody_customer_level_service_rec', value: serviceLevelId });
-            
+
             return search.lookupFields.promise({
                 type: 'customrecord_margin_system_lvl_service',
                 id: serviceLevelId,
@@ -262,7 +289,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
                     sublistId: 'item',
                     fieldId: 'custcol_mergn_desc_solicitado',
                     value: nuevoLimitePermitido,
-                    ignoreFieldChange: false 
+                    ignoreFieldChange: false
                 });
 
                 console.log(`[CM_DEBUG] Antes de commitLine - Línea: ${i} | Descuento ajustado a: ${nuevoLimitePermitido}`);
@@ -272,6 +299,9 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
         globalState.isRecalculating = false;
     };
 
+    /**
+     * Aplica reglas de negocio e inyecta precios base y rate al modificar descriptores de margen a nivel línea.
+     */
     const evaluateLineRules = (rec, fieldId) => {
         const itemType = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'itemtype' });
         const descSolicitado = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_mergn_desc_solicitado' })) || 0;
@@ -280,13 +310,19 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
             return;
         }
 
+        // CAMBIO : Leer el precio congelado de respaldo. Si por alguna razón está en 0, cae al rate nativo.
+        const precioRespaldo = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_precio_sin_margen' }));
+        const precioBaseReal = (precioRespaldo && precioRespaldo > 0)
+            ? precioRespaldo
+            : (parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'rate' })) || 0);
+
         let descuento = descSolicitado / 100;
         let itemLimit = globalState.limiteCliente / 100;
         let userLimit = globalState.limiteUsuario / 100;
         let serviceReduction = globalState.reduccionServicioActual / 100;
 
         const params = {
-            precioBase: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'rate' })) || 0,
+            precioBase: precioBaseReal, // <-- Ahora este valor es inmutable ante cambios de descuento consecutivos
             margenEstandar: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_estandar' })) || 0,
             descMargenSolicitado: descuento,
             descMargenServicio: serviceReduction,
@@ -295,7 +331,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
             limiteUsuario: userLimit
         };
 
-        console.log('[CM_DEBUG] Evaluando reglas de línea. Parámetros:', JSON.stringify(params));
+        console.log('[CM_DEBUG] Evaluando reglas con Precio Base de Respaldo:', precioBaseReal);
         const result = core.validateMarginRule(params);
 
         if (result.isValid) {
@@ -308,7 +344,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
     return {
         pageInit,
         fieldChanged,
-        postSourcing, // Arquitectura corregida: Evento expuesto
+        postSourcing,
         validateLine
     };
 });
