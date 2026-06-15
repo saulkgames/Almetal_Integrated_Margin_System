@@ -279,23 +279,54 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core'], (dialog, search, 
             const descSolicitado = parseFloat(rec.getSublistValue({ sublistId: 'item', fieldId: 'custcol_mergn_desc_solicitado', line: i })) || 0;
             const limiteArticulo = parseFloat(rec.getSublistValue({ sublistId: 'item', fieldId: 'custcol_maxdiscount_margin_percent', line: i })) || 0;
 
-            const limiteClienteReducido = globalState.limiteCliente * (1 - nuevaReduccion);
+            // 1. Calculamos el nuevo límite permitido (Matemática de reducción porcentual)
+            let limiteClienteReducido = globalState.limiteCliente * (1 - (nuevaReduccion / 100));
+            limiteClienteReducido = Math.max(0, parseFloat(limiteClienteReducido.toFixed(2)));
+
             const nuevoLimitePermitido = Math.min(limiteArticulo, limiteClienteReducido, globalState.limiteUsuario);
 
+            // 2. Evaluamos si la línea necesita intervención
             if (descSolicitado > nuevoLimitePermitido) {
                 rec.selectLine({ sublistId: 'item', line: i });
 
-                rec.setCurrentSublistValue({
-                    sublistId: 'item',
-                    fieldId: 'custcol_mergn_desc_solicitado',
-                    value: nuevoLimitePermitido,
-                    ignoreFieldChange: false
-                });
+                // Seteamos el nuevo límite de descuento SILENCIOSAMENTE
+                rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_mergn_desc_solicitado', value: nuevoLimitePermitido, ignoreFieldChange: true });
 
-                console.log(`[CM_DEBUG] Antes de commitLine - Línea: ${i} | Descuento ajustado a: ${nuevoLimitePermitido}`);
+                // 3. Extraemos el Precio Base de Respaldo para garantizar el cálculo correcto
+                const precioRespaldo = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_precio_sin_margen' }));
+                const precioBaseReal = (precioRespaldo && precioRespaldo > 0) 
+                    ? precioRespaldo 
+                    : (parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'rate' })) || 0);
+
+                // 4. Construimos los parámetros usando el NUEVO límite permitido
+                const params = {
+                    precioBase: precioBaseReal,
+                    margenEstandar: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_estandar' })) || 0,
+                    descMargenSolicitado: nuevoLimitePermitido / 100, // Inyectamos el límite corregido
+                    descMargenServicio: nuevaReduccion / 100,
+                    limiteArticulo: limiteArticulo / 100,
+                    limiteCliente: globalState.limiteCliente / 100,
+                    limiteUsuario: globalState.limiteUsuario / 100
+                };
+
+                // 5. Calculamos el nuevo Rate de forma sincrónica e inmediata
+                const result = core.validateMarginRule(params);
+
+                if (result.isValid) {
+                    // 6. Seteamos todos los campos monetarios para asegurar congruencia total
+                    rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'price', value: -1, ignoreFieldChange: true });
+                    rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'rate', value: result.finalPrice, ignoreFieldChange: true });
+                    rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_aplicado', value: result.appliedMargin, ignoreFieldChange: true });
+                } else {
+                    console.warn(`[CM_WARN] El recálculo de la línea ${i} falló las reglas del core.`);
+                }
+
+                console.log(`[CM_DEBUG] Línea ${i} commiteada - Descuento: ${nuevoLimitePermitido} | Nuevo Rate: ${result.finalPrice}`);
+                // 7. Guardamos la línea de forma segura
                 rec.commitLine({ sublistId: 'item' });
             }
         }
+        
         globalState.isRecalculating = false;
     };
 
