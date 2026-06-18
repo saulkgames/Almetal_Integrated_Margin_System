@@ -21,9 +21,11 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
         // Solo ejecutamos en creación para inicializar el dato
         if (context.type !== context.UserEventType.CREATE) return;
 
+        const newRecord = context.newRecord;
+
         try {
             const user = runtime.getCurrentUser();
-            const newRecord = context.newRecord;
+
 
             const employeeData = search.lookupFields({
                 type: search.Type.EMPLOYEE,
@@ -38,8 +40,27 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
                 value: limiteUsuario
             });
 
+            const configRecord = search.lookupFields({
+                type: 'customrecord_conf_sobrecargos',
+                id: 1,
+                columns: ['custrecord_sc_rango1', 'custrecord_sc_rango2', 'custrecord_sc_rango3', 'custrecord_sc_rango4']
+            });
+
+            // Convertimos los porcentajes de texto nativo a decimal y empaquetamos en JSON
+            const surchargeConfigJSON = {
+                rango1: (parseFloat(configRecord.custrecord_sc_rango1) || 0) / 100,
+                rango2: (parseFloat(configRecord.custrecord_sc_rango2) || 0) / 100,
+                rango3: (parseFloat(configRecord.custrecord_sc_rango3) || 0) / 100,
+                rango4: (parseFloat(configRecord.custrecord_sc_rango4) || 0) / 100
+            };
+
+            newRecord.setValue({
+                fieldId: 'custbody_hidden_surcharge_config',
+                value: JSON.stringify(surchargeConfigJSON)
+            });
+
         } catch (e) {
-            log.error({ title: 'Error en beforeLoad - Límite Usuario', details: e.message });
+            log.error({ title: 'Error en beforeLoad - Inyecciones', details: e.message});
             // No bloqueamos la carga, solo registramos el error
         }
 
