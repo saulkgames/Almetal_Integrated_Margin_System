@@ -34,7 +34,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
             globalState.limiteUsuario = parseFloat(rec.getValue({ fieldId: 'custbody_curr_user_discount_limit' })) || 0;
             globalState.terminoEntregaAnterior = rec.getValue({ fieldId: 'custbody_freigth_service_terms' });
 
-            const injectedConfig = rec.getValue({ fieldId: 'custbody_hidden_surcharge_config' });
+            const injectedConfig = rec.getValue({ fieldId: 'custbody_sang_hidden_surcharge_config' });
             if (injectedConfig) {
                 try {
                     globalState.configSobrecargos = JSON.parse(injectedConfig);
@@ -83,6 +83,20 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
 
             // CASO A: Cambia el Artículo o la Unidad de Medida
             if (fieldId === 'item' || fieldId === 'units') {
+
+                const idUnidadTransaccion = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'units' });
+                const idUnidadBase = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_drt_tipo_unidad' });
+
+                // Extraemos el texto visible y lo pasamos a minúsculas para evitar errores de tipeo (ej. "M", "Mt")
+                const textoUnidad = (rec.getCurrentSublistText({ sublistId: 'item', fieldId: 'units' }) || '').toLowerCase();
+                const unidadesValidasParaCorte = ['m', 'mt', 'mts', 'm2'];
+
+                // Si las unidades son diferentes Y la nueva unidad es válida para cortes -> Encendemos el check
+                if (idUnidadTransaccion && idUnidadBase && (idUnidadTransaccion !== idUnidadBase) && unidadesValidasParaCorte.includes(textoUnidad)) {
+                    rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_drt_sobre_cargo', value: true, ignoreFieldChange: true });
+                } else {
+                    rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_drt_sobre_cargo', value: false, ignoreFieldChange: true });
+                }
 
                 const currentPriceLvl = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'price' });
 
@@ -358,16 +372,39 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
                 ? precioRespaldo
                 : (parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'rate' })) || 0);
 
+            const idUnidadTransaccion = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'units' });
+            const idUnidadBase = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_drt_unidad_stock' });
+            const textoUnidad = (rec.getCurrentSublistText({ sublistId: 'item', fieldId: 'units' }) || '').toLowerCase();
+            const solicitarCorte = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_sang_item_solicitar_corte' }) === true;
+            const aplicaSobreCargo = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_drt_sobre_cargo' }) === true;
 
-            const paramsSobrecargo = {
-                precioBase: precioBaseReal,
-                quantity: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'quantity' })) || 0,
-                largoArticulo: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_hidden_item_largo' })) || 0,
-                solicitarCorte: rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_hidden_item_solicitar_corte' }) === true,
-                aplicaSobreCargo: rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_drt_sobre_cargo' }) === true,
-                configSurcharge: globalState.configSobrecargos
-            };
-            const montoCargoFisico = surchargeCore.calculateSurcharge(paramsSobrecargo);
+            let montoCargoFisico = 0;
+
+            if (aplicaSobreCargo && solicitarCorte && idUnidadTransaccion && idUnidadBase && (idUnidadTransaccion !== idUnidadBase)) {
+
+                const unidadesValidasParaCorte = ['m', 'mt', 'mts', 'm2'];
+
+                if (unidadesValidasParaCorte.includes(textoUnidad)) {
+                    // Pasa ambos filtros: Calculamos el sobrecargo
+                    const paramsSobrecargo = {
+                        precioBase: precioBaseReal,
+                        quantity: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'quantity' })) || 0,
+                        largoArticulo: parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_sang_hidden_item_largo' })) || 0,
+                        solicitarCorte: solicitarCorte,
+                        aplicaSobreCargo: aplicaSobreCargo,
+                        configSurcharge: globalState.configSobrecargos
+                    };
+                    montoCargoFisico = surchargeCore.calculateSurcharge(paramsSobrecargo);
+                    console.log(`[CM_DEBUG] Filtros superados. Cargo calculado: $${montoCargoFisico}`);
+                } else {
+                    // Falla el Filtro 2 (ej. cambió de Pieza a Kilogramo). Ahorramos memoria.
+                    console.log(`[CM_DEBUG] Cambio de unidad a '${textoUnidad}', pero no aplica para cortes. Se omite el motor CM.`);
+                }
+
+            } else {
+                // Falla el Filtro 1 (Unidades iguales o banderas apagadas)
+                console.log(`[CM_DEBUG] Unidades base intactas o banderas apagadas. No se requiere sobrecargo.`);
+            }
 
             let descuento = descSolicitado / 100;
             let itemLimit = globalState.limiteCliente / 100;
@@ -391,7 +428,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
                 const precioAbsolutoFinal = resultMargen.finalPrice + montoCargoFisico;
                 rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'price', value: -1, ignoreFieldChange: true });
                 rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'rate', value: precioAbsolutoFinal, ignoreFieldChange: true });
-                rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_monto_sobrecargo_aplicado', value: montoCargoFisico, ignoreFieldChange: true });
+                rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_sang_monto_sobrecargo_apli', value: montoCargoFisico, ignoreFieldChange: true });
                 rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_aplicado', value: result.appliedMargin, ignoreFieldChange: true });
             }
         };

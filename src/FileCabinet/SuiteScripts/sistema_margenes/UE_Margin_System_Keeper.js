@@ -41,21 +41,21 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
             });
 
             const configRecord = search.lookupFields({
-                type: 'customrecord_conf_sobrecargos',
+                type: 'customrecord_sang_conf_sobrecargos',
                 id: 1,
-                columns: ['custrecord_sc_rango1', 'custrecord_sc_rango2', 'custrecord_sc_rango3', 'custrecord_sc_rango4']
+                columns: ['custrecord_sang_sc_rango1', 'custrecord_sang_sc_rango2', 'custrecord_sang_sc_rango3', 'custrecord_sang_sc_rango4']
             });
 
             // Convertimos los porcentajes de texto nativo a decimal y empaquetamos en JSON
             const surchargeConfigJSON = {
-                rango1: (parseFloat(configRecord.custrecord_sc_rango1) || 0) / 100,
-                rango2: (parseFloat(configRecord.custrecord_sc_rango2) || 0) / 100,
-                rango3: (parseFloat(configRecord.custrecord_sc_rango3) || 0) / 100,
-                rango4: (parseFloat(configRecord.custrecord_sc_rango4) || 0) / 100
+                rango1: (parseFloat(configRecord.custrecord_sang_sc_rango1) || 0) / 100,
+                rango2: (parseFloat(configRecord.custrecord_sang_sc_rango2) || 0) / 100,
+                rango3: (parseFloat(configRecord.custrecord_sang_sc_rango3) || 0) / 100,
+                rango4: (parseFloat(configRecord.custrecord_sang_sc_rango4) || 0) / 100
             };
 
             newRecord.setValue({
-                fieldId: 'custbody_hidden_surcharge_config',
+                fieldId: 'custbody_sang_hidden_surcharge_config',
                 value: JSON.stringify(surchargeConfigJSON)
             });
 
