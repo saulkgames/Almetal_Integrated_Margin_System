@@ -35,7 +35,10 @@ define(['N/error', 'N/log'], (error, log) => {
         let errorMessage = '';
 
         const limiteClienteReducido = limiteCliente * (1 - descMargenServicio);
-        
+
+        const costo = (precioBase * (100 - margenEstandar)) / 100;
+        const margenAplicado = margenEstandar - (margenEstandar * descMargenSolicitado);
+
         if (descMargenSolicitado > limiteArticulo) {
 
             isValid = false;
@@ -53,9 +56,9 @@ define(['N/error', 'N/log'], (error, log) => {
                 title: 'Bloqueo en Sistema de Márgenes',
                 details: `Validación fallida. Razón: ${errorMessage} | Margen Calculado: ${margenAplicado.toFixed(4)} | Descuento Solicitado: ${descMargenSolicitado.toFixed(4)}`
             });
+            return { isValid, errorMessage, appliedMargin: 0, finalPrice: precioBase };
         }
-        const costo = (precioBase * (100 - margenEstandar)) / 100;
-        const margenAplicado = margenEstandar - (margenEstandar * descMargenSolicitado);
+
 
         if (margenAplicado <= 0) {
             throw error.create({
@@ -67,9 +70,9 @@ define(['N/error', 'N/log'], (error, log) => {
 
         let precioFinal = costo * (100 / (100 - margenAplicado));
         precioFinal = Math.round((precioFinal + Number.EPSILON) * 100) / 100;
-        
 
-        
+
+
 
         return {
             isValid,

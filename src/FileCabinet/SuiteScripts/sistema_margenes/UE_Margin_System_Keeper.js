@@ -18,64 +18,71 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
      * Trigger 1: Inyección del límite del usuario al cargar la pantalla.
      */
     const beforeLoad = (context) => {
-        // Solo ejecutamos en creación para inicializar el dato
-        if (context.type !== context.UserEventType.CREATE) return;
-
         const newRecord = context.newRecord;
+        // Solo ejecutamos en creación para inicializar el dato
+        if (context.type !== context.UserEventType.CREATE) {
+            try {
+                const user = runtime.getCurrentUser();
 
-        try {
-            const user = runtime.getCurrentUser();
 
+                const employeeData = search.lookupFields({
+                    type: search.Type.EMPLOYEE,
+                    id: user.id,
+                    columns: ['custentity_user_margin_limit']
+                });
 
-            const employeeData = search.lookupFields({
-                type: search.Type.EMPLOYEE,
-                id: user.id,
-                columns: ['custentity_user_margin_limit']
-            });
+                const limiteUsuario = parseFloat(employeeData.custentity_user_margin_limit) || 0;
 
-            const limiteUsuario = parseFloat(employeeData.custentity_user_margin_limit) || 0;
+                newRecord.setValue({
+                    fieldId: 'custbody_curr_user_discount_limit',
+                    value: limiteUsuario
+                });
 
-            newRecord.setValue({
-                fieldId: 'custbody_curr_user_discount_limit',
-                value: limiteUsuario
-            });
+                const configRecord = search.lookupFields({
+                    type: 'customrecord_sang_conf_sobrecargos',
+                    id: 1,
+                    columns: ['custrecord_sang_sc_rango1', 'custrecord_sang_sc_rango2', 'custrecord_sang_sc_rango3', 'custrecord_sang_sc_rango4']
+                });
 
-            const configRecord = search.lookupFields({
-                type: 'customrecord_sang_conf_sobrecargos',
-                id: 1,
-                columns: ['custrecord_sang_sc_rango1', 'custrecord_sang_sc_rango2', 'custrecord_sang_sc_rango3', 'custrecord_sang_sc_rango4']
-            });
+                // Convertimos los porcentajes de texto nativo a decimal y empaquetamos en JSON
+                const surchargeConfigJSON = {
+                    rango1: (parseFloat(configRecord.custrecord_sang_sc_rango1) || 0) / 100,
+                    rango2: (parseFloat(configRecord.custrecord_sang_sc_rango2) || 0) / 100,
+                    rango3: (parseFloat(configRecord.custrecord_sang_sc_rango3) || 0) / 100,
+                    rango4: (parseFloat(configRecord.custrecord_sang_sc_rango4) || 0) / 100
+                };
 
-            // Convertimos los porcentajes de texto nativo a decimal y empaquetamos en JSON
-            const surchargeConfigJSON = {
-                rango1: (parseFloat(configRecord.custrecord_sang_sc_rango1) || 0) / 100,
-                rango2: (parseFloat(configRecord.custrecord_sang_sc_rango2) || 0) / 100,
-                rango3: (parseFloat(configRecord.custrecord_sang_sc_rango3) || 0) / 100,
-                rango4: (parseFloat(configRecord.custrecord_sang_sc_rango4) || 0) / 100
-            };
+                newRecord.setValue({
+                    fieldId: 'custbody_sang_hidden_surcharge_config',
+                    value: JSON.stringify(surchargeConfigJSON)
+                });
 
-            newRecord.setValue({
-                fieldId: 'custbody_sang_hidden_surcharge_config',
-                value: JSON.stringify(surchargeConfigJSON)
-            });
-
-        } catch (e) {
-            log.error({ title: 'Error en beforeLoad - Inyecciones', details: e.message});
-            // No bloqueamos la carga, solo registramos el error
+            } catch (e) {
+                log.error({ title: 'Error en beforeLoad - Inyecciones', details: e.message });
+                // No bloqueamos la carga, solo registramos el error
+            }
         }
 
-        if (context.type === context.UserEventType.VIEW && newRecord.type === 'estimate') {
-            const terminos = newRecord.getValue({ fieldId: 'custbody_freigth_service_terms' });
-            const form = context.form;
 
-            // 2 = SIN ENVIO
-            if (terminos === '2') {
-                form.removeButton({ id: 'salesord' }); // Bloquea pasar a Orden de Venta
-            }
-            // 1 = HOY, 3 = 3 DIAS
-            else if (terminos === '1' || terminos === '3') {
-                form.removeButton({ id: 'cashsale' }); // Bloquea Venta de Contado
-                form.removeButton({ id: 'invoice' });  // Bloquea Factura Directa
+        if (context.type === context.UserEventType.VIEW && newRecord.type === 'estimate') {
+
+            try {
+                const terminos = newRecord.getValue({ fieldId: 'custbody_freigth_service_terms' });
+                const form = context.form;
+
+                // 2 = SIN ENVIO
+                if (terminos === '2') {
+                    log.debug('[CM_DEBUG] Condición de envío: SIN ENVÍO. Bloqueando Orden de Venta.');
+                    form.removeButton({ id: 'createsalesord' }); 
+                }
+                // 1 = HOY, 3 = 3 DIAS
+                else if (terminos === '1' || terminos === '3') {
+                    log.debug('[CM_DEBUG] Condición de envío: CON ENVÍO. Permitiendo creación de transacciones.');
+                    form.removeButton({ id: 'createcashsale' }); 
+                    form.removeButton({ id: 'createinvoice' }); 
+                }
+            } catch (error) {
+                log.error({ title: 'Error en beforeLoad - Inyecciones', details: error.message });
             }
         }
     };
@@ -92,7 +99,13 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
         try {
             // 1. Obtener variables de cabecera en memoria (Ajustar ID de campos)
             const limiteUsuario = parseFloat(newRecord.getValue({ fieldId: 'custbody_curr_user_discount_limit' })) || 0;
-            const reduccionServicio = parseFloat(newRecord.getValue({ fieldId: 'custbody_customer_level_service_rec' })) || 0;
+            let reduccionServicio = parseFloat(newRecord.getValue({ fieldId: 'custbody_cust_serv_lvl' })) || 0;
+
+            // Normalización de seguridad: Si viene como entero (ej. 20 para 20%), lo pasamos a decimal (0.20)
+            // Si ya viene como decimal (0.20), lo dejamos intacto.
+            if (reduccionServicio > 1) {
+                reduccionServicio = reduccionServicio / 100;
+            }
 
             let limiteCliente = 0;
             const customerId = newRecord.getValue({ fieldId: 'entity' });

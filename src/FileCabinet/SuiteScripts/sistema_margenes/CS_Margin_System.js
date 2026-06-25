@@ -33,7 +33,14 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
 
             globalState.limiteUsuario = parseFloat(rec.getValue({ fieldId: 'custbody_curr_user_discount_limit' })) || 0;
             globalState.terminoEntregaAnterior = rec.getValue({ fieldId: 'custbody_freigth_service_terms' });
+            globalState.limiteCliente = parseFloat(rec.getValue({ fieldId: 'custbody_curr_cust_discount_limit' })) || 0;
+            globalState.reduccionServicioActual = parseFloat(rec.getValue({ fieldId: 'custbody_cust_serv_lvl' })) || 0;
 
+            const customerId = rec.getValue({ fieldId: 'entity' });
+            if (customerId) {
+                handleCustomerChange(rec);
+            }
+            
             const injectedConfig = rec.getValue({ fieldId: 'custbody_sang_hidden_surcharge_config' });
             if (injectedConfig) {
                 try {
@@ -84,32 +91,43 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
             // CASO A: Cambia el Artículo o la Unidad de Medida
             if (fieldId === 'item' || fieldId === 'units') {
 
-                const idUnidadTransaccion = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'units' });
-                const idUnidadBase = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_drt_tipo_unidad' });
+                try {
+                    const idUnidadTransaccion = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'units' });
+                    const idUnidadBase = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_drt_unidad_stock' });
 
-                // Extraemos el texto visible y lo pasamos a minúsculas para evitar errores de tipeo (ej. "M", "Mt")
-                const textoUnidad = (rec.getCurrentSublistText({ sublistId: 'item', fieldId: 'units' }) || '').toLowerCase();
-                const unidadesValidasParaCorte = ['m', 'mt', 'mts', 'm2'];
+                    // Extraemos el texto visible y lo pasamos a minúsculas para evitar errores de tipeo (ej. "M", "Mt")
+                    const textoUnidad = (rec.getCurrentSublistText({ sublistId: 'item', fieldId: 'units' }) || '').toLowerCase();
+                    const unidadesValidasParaCorte = ['m', 'mt', 'mts', 'm2'];
 
-                // Si las unidades son diferentes Y la nueva unidad es válida para cortes -> Encendemos el check
-                if (idUnidadTransaccion && idUnidadBase && (idUnidadTransaccion !== idUnidadBase) && unidadesValidasParaCorte.includes(textoUnidad)) {
-                    rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_drt_sobre_cargo', value: true, ignoreFieldChange: true });
-                } else {
-                    rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_drt_sobre_cargo', value: false, ignoreFieldChange: true });
+                    // Si las unidades son diferentes Y la nueva unidad es válida para cortes -> Encendemos el check
+                    //console.log(`[CM_DEBUG-TRUE] Ud_Trans: '${textoUnidad}' Se activa sobrecargo - Ud_Values: ${idUnidadTransaccion} vs ${idUnidadBase}`);
+
+                    if (idUnidadTransaccion && idUnidadBase && (idUnidadTransaccion !== idUnidadBase) && unidadesValidasParaCorte.includes(textoUnidad)) {
+                        rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_drt_sobre_cargo', value: true, ignoreFieldChange: true });
+                    } else {
+                        rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_drt_sobre_cargo', value: false, ignoreFieldChange: true });
+                    }
+                } catch (e) {
+                    console.error('[CM_ERROR] Error en postSourcing durante evaluación de sobrecargo:', e);
+                }
+                try {
+                    const currentPriceLvl = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'price' });
+
+                    // Si el precio está en Custom (-1) o cualquier otro, lo forzamos a Base (1)
+                    if (currentPriceLvl != 1) {
+                        console.log(`[CM_DEBUG] Forzando Nivel de Precio a 1 debido a cambio en ${fieldId}...`);
+                        // Esto disparará una nueva llamada al servidor y volverá a entrar a postSourcing pero con fieldId === 'price'
+                        rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'price', value: 1, ignoreFieldChange: false });
+                        return; // Cortamos la ejecución aquí.
+                    } else {
+                        // Si ya estaba en 1, el rate es correcto. Procedemos a respaldar.
+                        backupBasePrice(rec);
+                        evaluateLineRules(rec, fieldId);
+                    }
+                } catch (e) {
+                    console.error('[CM_ERROR] Error en postSourcing durante backup de precio:', e);
                 }
 
-                const currentPriceLvl = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'price' });
-
-                // Si el precio está en Custom (-1) o cualquier otro, lo forzamos a Base (1)
-                if (currentPriceLvl != 1) {
-                    console.log(`[CM_DEBUG] Forzando Nivel de Precio a 1 debido a cambio en ${fieldId}...`);
-                    // Esto disparará una nueva llamada al servidor y volverá a entrar a postSourcing pero con fieldId === 'price'
-                    rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'price', value: 1, ignoreFieldChange: false });
-                    return; // Cortamos la ejecución aquí.
-                } else {
-                    // Si ya estaba en 1, el rate es correcto. Procedemos a respaldar.
-                    backupBasePrice(rec);
-                }
             }
 
             // CASO B: Respondiendo al forzado de Precio a 1 (La "Luz Verde")
@@ -120,6 +138,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
                 if (currentPriceLvl == 1) {
                     console.log('[CM_DEBUG] Sourcing de Precio terminado. Respaldando Rate...');
                     backupBasePrice(rec);
+                    evaluateLineRules(rec, fieldId);
                 }
             }
         };
@@ -174,6 +193,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
             };
 
             const result = core.validateMarginRule(params);
+            
 
             if (!result.isValid) {
                 dialog.alert({
@@ -181,6 +201,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
                     message: result.errorMessage
                 });
                 return false;
+            
             }
 
             return true;
@@ -362,7 +383,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
             const itemType = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'itemtype' });
             const descSolicitado = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_mergn_desc_solicitado' })) || 0;
 
-            if (itemType === 'Group' || itemType === 'Kit' || itemType === 'EndGroup' || descSolicitado === 0) {
+            if (itemType === 'Group' || itemType === 'Kit' || itemType === 'EndGroup') {
                 return;
             }
 
@@ -394,6 +415,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
                         aplicaSobreCargo: aplicaSobreCargo,
                         configSurcharge: globalState.configSobrecargos
                     };
+                    console.log('[CM_DEBUG] Parámetros para cálculo de sobrecargo:', paramsSobrecargo);
                     montoCargoFisico = surchargeCore.calculateSurcharge(paramsSobrecargo);
                     console.log(`[CM_DEBUG] Filtros superados. Cargo calculado: $${montoCargoFisico}`);
                 } else {
@@ -404,6 +426,23 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
             } else {
                 // Falla el Filtro 1 (Unidades iguales o banderas apagadas)
                 console.log(`[CM_DEBUG] Unidades base intactas o banderas apagadas. No se requiere sobrecargo.`);
+            }
+
+            if (descSolicitado === 0 && montoCargoFisico === 0) {
+                const currentPriceLvl = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'price' });
+
+                // Si la línea estaba en estado "Inflado/Custom", la regresamos a su estado nativo puro
+                if (currentPriceLvl == -1) {
+                    const qty = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'quantity' })) || 0;
+
+                    rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'price', value: 1, ignoreFieldChange: true });
+                    rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'rate', value: precioBaseReal, ignoreFieldChange: true });
+                    rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'amount', value: (precioBaseReal * qty), ignoreFieldChange: true });
+                    rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_aplicado', value: '', ignoreFieldChange: true });
+                    rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_sang_monto_sobrecargo_apli', value: '', ignoreFieldChange: true });
+                    console.log('[CM_DEBUG] Línea restaurada al Precio Base. Sin descuento y sin cargo.');
+                }
+                return; // Cortamos la ejecución, ya no es necesario llamar al Motor de Márgenes
             }
 
             let descuento = descSolicitado / 100;
@@ -425,11 +464,30 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
             const result = core.validateMarginRule(params);
 
             if (result.isValid) {
-                const precioAbsolutoFinal = resultMargen.finalPrice + montoCargoFisico;
+                const precioAbsolutoFinal = result.finalPrice + montoCargoFisico;
+                const qty = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'quantity' })) || 0;
+
                 rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'price', value: -1, ignoreFieldChange: true });
                 rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'rate', value: precioAbsolutoFinal, ignoreFieldChange: true });
+                rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'amount', value: (precioAbsolutoFinal * qty), ignoreFieldChange: true });
                 rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_sang_monto_sobrecargo_apli', value: montoCargoFisico, ignoreFieldChange: true });
                 rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_aplicado', value: result.appliedMargin, ignoreFieldChange: true });
+            } else {
+
+                dialog.alert({
+                    title: 'Restricción Comercial',
+                    message: `${result.errorMessage}\n\nEl sistema restablecerá este descuento a 0% para proteger la rentabilidad de la operación.`
+                }).then(() => {
+                    // Seteamos el campo en vacío (0) y DEJAMOS ignoreFieldChange: false.
+                    // Esto hará que el script vuelva a correr mágicamente, borrando el descuento inválido
+                    // y auto-restaurando el precio base correcto (con o sin sobrecargo) sin que el usuario haga nada.
+                    rec.setCurrentSublistValue({
+                        sublistId: 'item',
+                        fieldId: 'custcol_mergn_desc_solicitado',
+                        value: '',
+                        ignoreFieldChange: false
+                    });
+                });
             }
         };
 
