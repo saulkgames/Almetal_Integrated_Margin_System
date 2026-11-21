@@ -20,7 +20,7 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
     const beforeLoad = (context) => {
         const newRecord = context.newRecord;
         // Solo ejecutamos en creación para inicializar el dato
-        if (context.type !== context.UserEventType.CREATE) {
+        if (context.type === context.UserEventType.CREATE) {
             try {
                 const user = runtime.getCurrentUser();
 

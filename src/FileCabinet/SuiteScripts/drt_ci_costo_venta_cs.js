@@ -12,7 +12,7 @@ define(['N/runtime', 'N/search', 'N/ui/message', 'N/ui/dialog'], function (runti
             debugger;
             if (!datosTransaction.success) {
                 //throw 'Error al obtener información del empleado. Variable modifica importe.';
-              	log.error({
+                log.error({
                     title: 'Consulta Empleado',
                     details: JSON.stringify(datosTransaction)
                 });
@@ -26,22 +26,22 @@ define(['N/runtime', 'N/search', 'N/ui/message', 'N/ui/dialog'], function (runti
                     sublistId: sublistName,
                     fieldId: 'price',
                 })) || 1;
-                if(parseFloat(pfpdescuento) > 0 ) {
+                if (parseFloat(pfpdescuento) > 0) {
                     currentRecord.setCurrentSublistValue({
                         sublistId: sublistName,
                         fieldId: 'price',
                         value: "1"
                     });
                 }
-                
+
                 var nweRate = parseFloat(currentRecord.getCurrentSublistValue({
                     sublistId: sublistName,
                     fieldId: 'custcol_drt_rate_backup'
                 }) || currentRecord.getCurrentSublistValue({
                     sublistId: sublistName,
                     fieldId: 'rate'
-                }) ) || 0;
-                
+                })) || 0;
+
                 var nweRateBlock = currentRecord.getCurrentSublistValue({
                     sublistId: sublistName,
                     fieldId: 'custcol_drt_rate_block'
@@ -49,22 +49,22 @@ define(['N/runtime', 'N/search', 'N/ui/message', 'N/ui/dialog'], function (runti
                     sublistId: sublistName,
                     fieldId: 'rate'
                 }) || 0;
-                
-                if( nweRate != nweRateBlock){
+
+                if (nweRate != nweRateBlock) {
                     nweRate = nweRateBlock;
                 }
                 var backup = currentRecord.getCurrentSublistValue({
                     sublistId: sublistName,
                     fieldId: 'custcol_drt_rate_backup',
                 });
-                if(!backup){
+                if (!backup) {
                     currentRecord.setCurrentSublistValue({
                         sublistId: sublistName,
                         fieldId: 'custcol_drt_rate_backup',
                         value: nweRate
                     });
                 }
-                
+
 
                 var unit = currentRecord.getCurrentSublistValue({
                     sublistId: sublistName,
@@ -129,12 +129,12 @@ define(['N/runtime', 'N/search', 'N/ui/message', 'N/ui/dialog'], function (runti
                 debugger;
 
                 if (
-                    pfpdescuento 
+                    pfpdescuento
                 ) {
                     nweRate *= 1 - (parseFloat(pfpdescuento) / 100);
                 }
 
-                if(!datosTransaction.data.custentity_drt_modificacion_importe) {
+                if (!datosTransaction.data.custentity_drt_modificacion_importe) {
                     currentRecord.setCurrentSublistValue({
                         sublistId: sublistName,
                         fieldId: 'price',
@@ -154,7 +154,7 @@ define(['N/runtime', 'N/search', 'N/ui/message', 'N/ui/dialog'], function (runti
                     fieldId: 'rate'
                 }) || 0;
                 if (nweRate <= 0) {
-                    if(!datosTransaction.data.custentity_drt_modificacion_importe) {
+                    if (!datosTransaction.data.custentity_drt_modificacion_importe) {
                         currentRecord.setCurrentSublistValue({
                             sublistId: sublistName,
                             fieldId: 'price',
@@ -162,10 +162,10 @@ define(['N/runtime', 'N/search', 'N/ui/message', 'N/ui/dialog'], function (runti
                         });
                     }
                     showmessage({
-                            title: "Error",
-                            message: 'El monto de venta de: ' + parseFloat(nweRate) + ' No  esta permitido,',
-                            type: message.Type.CONFIRMATION
-                        },
+                        title: "Error",
+                        message: 'El monto de venta de: ' + parseFloat(nweRate) + ' No  esta permitido,',
+                        type: message.Type.CONFIRMATION
+                    },
                         10000
                     );
                 }
@@ -234,10 +234,10 @@ define(['N/runtime', 'N/search', 'N/ui/message', 'N/ui/dialog'], function (runti
                     fieldId: 'price',
                     value: "1"
                 });*/
-                var nweRate =  backup || currRate || '';
+                var nweRate = backup || currRate || '';
 
-                
-                if(!backup){
+
+                if (!backup) {
                     currentRecord.setCurrentSublistValue({
                         sublistId: sublistName,
                         fieldId: 'custcol_drt_rate_backup',
@@ -246,87 +246,87 @@ define(['N/runtime', 'N/search', 'N/ui/message', 'N/ui/dialog'], function (runti
                 }
 
             }
-            
+
             if (sublistName === 'item' && sublistFieldName === 'custcol_pfpdescuento_') {
                 var pfpdescuento = currentRecord.getCurrentSublistValue({
                     sublistId: sublistName,
                     fieldId: 'custcol_pfpdescuento_'
                 });
                 currentRecord.setCurrentSublistValue({
-                        sublistId: sublistName,
-                        fieldId: 'price',
-                        value: "1"
-                    });
+                    sublistId: sublistName,
+                    fieldId: 'price',
+                    value: "1"
+                });
                 if (pfpdescuento) {
-  var entity = '';
-  var maxdiscountEntity = 0;
-  var user = runtime.getCurrentUser();
-  var customerEntity = currentRecord.getValue('entity') || currentRecord.getValue('customer') || "";
-  var customerMaxDiscount = 1000;
-  entity = user.name;
-  var descuento = parseFloat(pfpdescuento) || 0;
-  var mensaje = '';
-  var aplicadescuento = 0;
+                    var entity = '';
+                    var maxdiscountEntity = 0;
+                    var user = runtime.getCurrentUser();
+                    var customerEntity = currentRecord.getValue('entity') || currentRecord.getValue('customer') || "";
+                    var customerMaxDiscount = 1000;
+                    entity = user.name;
+                    var descuento = parseFloat(pfpdescuento) || 0;
+                    var mensaje = '';
+                    var aplicadescuento = 0;
 
-  if (customerEntity) {
-    var customer = lookup(search.Type.CUSTOMER, customerEntity, ['custentitydrt_descuieno_maxcustomoe']);
-    if (customer.success) {
-      customerMaxDiscount = parseFloat(customer.data.custentitydrt_descuieno_maxcustomoe) || 0;
-    }
-  }
+                    if (customerEntity) {
+                        var customer = lookup(search.Type.CUSTOMER, customerEntity, ['custentitydrt_descuieno_maxcustomoe']);
+                        if (customer.success) {
+                            customerMaxDiscount = parseFloat(customer.data.custentitydrt_descuieno_maxcustomoe) || 0;
+                        }
+                    }
 
-  var maxdiscountItem = parseFloat(currentRecord.getCurrentSublistValue({
-    sublistId: sublistName,
-    fieldId: 'custcol_drt_descuento_maximo_art'
-  })) || 0;
+                    var maxdiscountItem = parseFloat(currentRecord.getCurrentSublistValue({
+                        sublistId: sublistName,
+                        fieldId: 'custcol_drt_descuento_maximo_art'
+                    })) || 0;
 
-  var datosTransaction = lookup(search.Type.EMPLOYEE, user.id, ['custentity_drt_descuento_maxio']);
-  if (datosTransaction.success) {
-    if (datosTransaction.data.custentity_drt_descuento_maxio) {
-      maxdiscountEntity = parseFloat(datosTransaction.data.custentity_drt_descuento_maxio) || 0;
-    }
-  }
+                    var datosTransaction = lookup(search.Type.EMPLOYEE, user.id, ['custentity_drt_descuento_maxio']);
+                    if (datosTransaction.success) {
+                        if (datosTransaction.data.custentity_drt_descuento_maxio) {
+                            maxdiscountEntity = parseFloat(datosTransaction.data.custentity_drt_descuento_maxio) || 0;
+                        }
+                    }
 
-  if (!customerEntity || !maxdiscountEntity || !maxdiscountItem) {
-  mensaje = 'No se puede aplicar descuento, el campo de descuento del articulo, cliente o del empleado está vacío';
-    } 
-  else if (maxdiscountEntity > 0 && customerMaxDiscount > 0) {
-    if (customerMaxDiscount >= maxdiscountEntity && customerMaxDiscount < maxdiscountItem) {
-      aplicadescuento = 2;
-    } else if (customerMaxDiscount < maxdiscountEntity && maxdiscountEntity <= maxdiscountItem) {
-      aplicadescuento = 1;
-    } else {
-      aplicadescuento = 0;
-    }
+                    if (!customerEntity || !maxdiscountEntity || !maxdiscountItem) {
+                        mensaje = 'No se puede aplicar descuento, el campo de descuento del articulo, cliente o del empleado está vacío';
+                    }
+                    else if (maxdiscountEntity > 0 && customerMaxDiscount > 0) {
+                        if (customerMaxDiscount >= maxdiscountEntity && customerMaxDiscount < maxdiscountItem) {
+                            aplicadescuento = 2;
+                        } else if (customerMaxDiscount < maxdiscountEntity && maxdiscountEntity <= maxdiscountItem) {
+                            aplicadescuento = 1;
+                        } else {
+                            aplicadescuento = 0;
+                        }
 
-    var maxDiscount = Math.max(maxdiscountEntity, customerMaxDiscount);
+                        var maxDiscount = Math.max(maxdiscountEntity, customerMaxDiscount);
 
-    if (descuento <= maxDiscount && descuento <= maxdiscountItem) {
-      mensaje = '';
-    } else {
-      var itemName = currentRecord.getCurrentSublistText({
-        sublistId: sublistName,
-        fieldId: 'item'
-      }) || '';
-      mensaje = 'El artículo ' + itemName + ' está autorizado a un descuento máximo de: ' + maxdiscountItem + '% y el mayor entre el empleado y cliente es de: ' + maxDiscount + '%, no puedo aplicar el descuento de: ' + pfpdescuento + '%';
-    }
-  } else {
-    mensaje = 'No se puede aplicar descuento, el empleado o el cliente no tienen descuento asignado';
-  }
+                        if (descuento <= maxDiscount && descuento <= maxdiscountItem) {
+                            mensaje = '';
+                        } else {
+                            var itemName = currentRecord.getCurrentSublistText({
+                                sublistId: sublistName,
+                                fieldId: 'item'
+                            }) || '';
+                            mensaje = 'El artículo ' + itemName + ' está autorizado a un descuento máximo de: ' + maxdiscountItem + '% y el mayor entre el empleado y cliente es de: ' + maxDiscount + '%, no puedo aplicar el descuento de: ' + pfpdescuento + '%';
+                        }
+                    } else {
+                        mensaje = 'No se puede aplicar descuento, el empleado o el cliente no tienen descuento asignado';
+                    }
 
-  if (mensaje) {
-    currentRecord.setCurrentSublistValue({
-      sublistId: sublistName,
-      fieldId: 'custcol_pfpdescuento_',
-      value: 0
-    });
-    showmessage({
-      title: "Descuento",
-      message: mensaje,
-      type: message.Type.CONFIRMATION
-    }, 10000);
-  }
-}
+                    if (mensaje) {
+                        currentRecord.setCurrentSublistValue({
+                            sublistId: sublistName,
+                            fieldId: 'custcol_pfpdescuento_',
+                            value: 0
+                        });
+                        showmessage({
+                            title: "Descuento",
+                            message: mensaje,
+                            type: message.Type.CONFIRMATION
+                        }, 10000);
+                    }
+                }
             }
             if (sublistName === 'item' && sublistFieldName === 'rate') {
                 currentRecord.setCurrentSublistValue({
@@ -340,17 +340,17 @@ define(['N/runtime', 'N/search', 'N/ui/message', 'N/ui/dialog'], function (runti
             }
 
             if (sublistName === 'item' && sublistFieldName === 'custcol_drt_rate_backup') {
-              var drt_rate =  parseFloat(currentRecord.getCurrentSublistValue({
-                        sublistId: sublistName,
-                        fieldId: 'custcol_drt_rate_backup'
-                    })) || 0;
-              if(drt_rate > 0) {
-               currentRecord.setCurrentSublistValue({
+                var drt_rate = parseFloat(currentRecord.getCurrentSublistValue({
                     sublistId: sublistName,
-                    fieldId: 'rate',
-                    value: drt_rate
-                });
-              }
+                    fieldId: 'custcol_drt_rate_backup'
+                })) || 0;
+                if (drt_rate > 0) {
+                    currentRecord.setCurrentSublistValue({
+                        sublistId: sublistName,
+                        fieldId: 'rate',
+                        value: drt_rate
+                    });
+                }
             }
 
             if (sublistName === 'item' && sublistFieldName === 'price') {
@@ -358,7 +358,7 @@ define(['N/runtime', 'N/search', 'N/ui/message', 'N/ui/dialog'], function (runti
                     sublistId: sublistName,
                     fieldId: 'price',
                 })) || 1;
-                if(priceLevel < 1) {
+                if (priceLevel < 1) {
                     currentRecord.setCurrentSublistValue({
                         sublistId: sublistName,
                         fieldId: 'rate',
@@ -369,7 +369,7 @@ define(['N/runtime', 'N/search', 'N/ui/message', 'N/ui/dialog'], function (runti
                     });
                 }
             }
-        
+
         } catch (error) {
             log.error({
                 title: 'error fieldChanged',
@@ -391,21 +391,21 @@ define(['N/runtime', 'N/search', 'N/ui/message', 'N/ui/dialog'], function (runti
                     sublistId: sublistName,
                     fieldId: 'custcol_drt_rate_backup',
                 });
-    
+
                 var currRate = currentRecord.getCurrentSublistValue({
                     sublistId: sublistName,
                     fieldId: 'rate',
                 });
-                var nweRate = backup|| currRate|| '';
+                var nweRate = backup || currRate || '';
 
-                if(!backup){
+                if (!backup) {
                     currentRecord.setCurrentSublistValue({
                         sublistId: sublistName,
                         fieldId: 'custcol_drt_rate_backup',
                         value: nweRate
                     });
                 }
-                
+
 
             }
         } catch (error) {
