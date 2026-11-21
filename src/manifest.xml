@@ -1,0 +1,34 @@
+<manifest projecttype="ACCOUNTCUSTOMIZATION">
+  <projectname>Almetal_Integrated_Margin_System</projectname>
+  <frameworkversion>1.0</frameworkversion>
+  <dependencies>
+    <features>
+      <feature required="false">SUITESIGNON</feature>
+      <feature required="false">MULTILANGUAGE</feature>
+      <feature required="false">EXPREPORTS</feature>
+      <feature required="false">ADVRECEIVING</feature>
+      <feature required="false">MULTILOCINVT</feature>
+      <feature required="false">MATRIXITEMS</feature>
+      <feature required="false">INVENTORY</feature>
+      <feature required="false">CRM</feature>
+      <feature required="false">CUSTOMTRANSACTIONS</feature>
+      <feature required="false">EXTREMELIST</feature>
+      <feature required="false">RECEIVABLES</feature>
+      <feature required="false">MAILMERGE</feature>
+      <feature required="true">CUSTOMRECORDS</feature>
+      <feature required="false">PAYABLES</feature>
+      <feature required="false">WEBSITE</feature>
+      <feature required="false">OPPORTUNITIES</feature>
+      <feature required="false">PAYCHECKJOURNAL</feature>
+      <feature required="false">JOBS</feature>
+      <feature required="false">CUSTOMSEGMENTS</feature>
+      <feature required="false">ACCOUNTING</feature>
+      <feature required="false">WEBSTORE</feature>
+      <feature required="false">MERCHANDISEHIERARCHY</feature>
+    </features>
+    <objects>
+        <object>custitem_alm_preciofinal_cargos</object>
+        <object>custitem_drt_ci_margen_para_venta</object>
+    </objects>
+  </dependencies>
+</manifest>

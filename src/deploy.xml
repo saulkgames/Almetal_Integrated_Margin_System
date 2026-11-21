@@ -1,0 +1,8 @@
+<deploy>
+    <files>
+        <path>~/FileCabinet/SuiteScripts/sistema_margenes/*</path>
+    </files>
+    <objects>
+        <path>~/Objects/*</path>
+    </objects>
+</deploy>

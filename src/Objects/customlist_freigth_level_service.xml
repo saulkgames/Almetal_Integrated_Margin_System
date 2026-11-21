@@ -1,0 +1,24 @@
+<customlist scriptid="customlist_freigth_level_service">
+  <description></description>
+  <isinactive>F</isinactive>
+  <ismatrixoption>F</ismatrixoption>
+  <isordered>T</isordered>
+  <name>Nivel de Servicio de Entrega</name>
+  <customvalues>
+    <customvalue scriptid="1">
+      <abbreviation>N</abbreviation>
+      <isinactive>F</isinactive>
+      <value>HOY</value>
+    </customvalue>
+    <customvalue scriptid="2">
+      <abbreviation>N</abbreviation>
+      <isinactive>F</isinactive>
+      <value>SIN ENVIO</value>
+    </customvalue>
+    <customvalue scriptid="3">
+      <abbreviation>N</abbreviation>
+      <isinactive>F</isinactive>
+      <value>3 DIAS</value>
+    </customvalue>
+  </customvalues>
+</customlist>
