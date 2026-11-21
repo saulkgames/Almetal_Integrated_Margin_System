@@ -9,3 +9,5 @@
 !*.md
 !.gitignore
 !*.json
+!*.html
+!*.xml
