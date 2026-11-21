@@ -8,3 +8,4 @@
 !*.js
 !*.md
 !.gitignore
+!*.json

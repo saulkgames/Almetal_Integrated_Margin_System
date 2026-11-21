@@ -1,0 +1,34 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "opencode-go/kimi-k2.7-code",
+  "small_model": "opencode-go/claude-haiku-5-5",
+  "agent": {
+    "plan": {
+      "model": "opencode-go/deepseek-v4-pro",
+      "variant": "high",
+      "reasoningEffort": "high"
+    },
+    "build": {
+      "model": "opencode-go/kimi-k2.7-code",
+      "variant": "low",
+      "reasoningEffort": "low"
+    },
+    "explore": {
+      "model": "opencode-go/gemini-4-argon",
+      "variant": "low",
+      "reasoningEffort": "low"
+    }
+  },
+  "permission": {
+    "bash": {
+      "*": "ask",
+      "suitecloud project:validate*": "allow",
+      "git status*": "allow",
+      "git diff*": "allow",
+      "git log*": "allow",
+      "suitecloud project:deploy*": "ask",
+      "suitecloud file:upload*": "ask",
+      "git push*": "ask"
+    }
+  }
+}
