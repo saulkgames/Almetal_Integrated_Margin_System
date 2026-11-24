@@ -10,8 +10,8 @@
  * @RiotID - ares98
  */
 
-define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_System_Core'],
-    (dialog, search, core, surchargeCore) => {
+define(['N/ui/dialog', 'N/search', 'N/runtime', './CM_Margin_System_Core', './CM_Surcharge_System_Core'],
+    (dialog, search, runtime, core, surchargeCore) => {
 
         // Estado global para cachear límites y controlar el flujo de la UI
         const globalState = {
@@ -21,7 +21,19 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
             nivelesEnvio: { noEnvio: 0, envioHoy: 0, envioDias: 0 },
             isRecalculating: false,
             terminoEntregaAnterior: null,
-            configSobrecargos: {}
+            configSobrecargos: {},
+            esSubsidiaria: false
+        };
+
+        const getSubsidiaryPriceLevel = () => {
+            try {
+                const priceLevelId = parseInt(runtime.getCurrentScript().getParameter({
+                    name: 'custscript_alm_price_lvl_subsidiaria'
+                }), 10);
+                return priceLevelId || 6;
+            } catch (e) {
+                return 6;
+            }
         };
 
         const isFieldAvailable = (rec, fieldId) => {
@@ -114,6 +126,25 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
 
             if (sublistId !== 'item') return;
 
+            // RUTA SUBSIDIARIA / INTERCOMPAÑÍA
+            if (globalState.esSubsidiaria) {
+                if (fieldId === 'item' || fieldId === 'units') {
+                    try {
+                        const priceLevelSubsidiaria = getSubsidiaryPriceLevel();
+                        const currentPriceLvl = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'price' });
+                        if (currentPriceLvl != priceLevelSubsidiaria) {
+                            console.log(`[CM_DEBUG] Forzando Nivel de Precio a Subsidiaria (${priceLevelSubsidiaria})...`);
+                            rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'price', value: priceLevelSubsidiaria, ignoreFieldChange: false });
+                        }
+                    } catch (e) {
+                        console.error('[CM_ERROR] Error en postSourcing para subsidiaria:', e);
+                    }
+                    return;
+                }
+                // Cuando NetSuite termina de traer el price level subsidiaria, no hacemos backup ni evaluación.
+                if (fieldId === 'price') return;
+            }
+
             // CASO A: Cambia el Artículo o la Unidad de Medida
             if (fieldId === 'item' || fieldId === 'units') {
 
@@ -201,6 +232,9 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
             // Silenciar bloqueos durante el auto-ajuste iterativo
             if (globalState.isRecalculating) return true;
 
+            // Las subsidiarias usan su propio price level; no aplican jerarquía de descuentos.
+            if (globalState.esSubsidiaria) return true;
+
             const itemType = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'itemtype' });
             const descSolicitado = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_mergn_desc_solicitado' })) || 0;
 
@@ -253,10 +287,12 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
                 id: customerId,
                 columns: [
                     'custentity_maxdiscount_margin_percent',
-                    'custentity_custrec_service_level'
+                    'custentity_custrec_service_level',
+                    'custentity_alm_check_intercompania'
                 ]
             }).then((customerData) => {
                 globalState.limiteCliente = parseFloat(customerData.custentity_maxdiscount_margin_percent) || 0;
+                globalState.esSubsidiaria = core.isSubsidiaryCustomer(customerData);
                 rec.setValue({ fieldId: 'custbody_curr_cust_discount_limit', value: globalState.limiteCliente });
 
                 const serviceLevelField = customerData.custentity_custrec_service_level;
@@ -406,6 +442,9 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
          * Aplica reglas de negocio e inyecta precios base y rate al modificar descriptores de margen a nivel línea.
          */
         const evaluateLineRules = (rec, fieldId) => {
+            // Las subsidiarias usan su price level calculado; no se recalcula ni descuento ni sobrecargo.
+            if (globalState.esSubsidiaria) return;
+
             const itemType = rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'itemtype' });
             const descSolicitado = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_mergn_desc_solicitado' })) || 0;
 

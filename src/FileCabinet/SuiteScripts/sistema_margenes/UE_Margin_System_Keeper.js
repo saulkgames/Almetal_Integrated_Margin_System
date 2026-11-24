@@ -11,7 +11,7 @@
  * @RiotID - ares98
  */
 
-define(['N/search', 'N/runtime', 'N/error', 'N/record'], (search, runtime, error, record) => {
+define(['N/search', 'N/runtime', 'N/error', 'N/record', './CM_Margin_System_Core'], (search, runtime, error, record, core) => {
 
     /**
      * Hides native conversion buttons exclusively on the Estimate record.
@@ -207,13 +207,22 @@ define(['N/search', 'N/runtime', 'N/error', 'N/record'], (search, runtime, error
             let limiteCliente = 0;
             const customerId = newRecord.getValue({ fieldId: 'entity' });
 
+            let esSubsidiaria = false;
             if (customerId) {
                 const customerData = search.lookupFields({
                     type: search.Type.CUSTOMER,
                     id: customerId,
-                    columns: ['custentity_maxdiscount_margin_percent',]
+                    columns: ['custentity_maxdiscount_margin_percent', 'custentity_alm_check_intercompania']
                 });
                 limiteCliente = parseFloat(customerData.custentity_maxdiscount_margin_percent) || 0;
+                esSubsidiaria = core.isSubsidiaryCustomer(customerData);
+            }
+
+            // Las subsidiarias usan el price level "SUBSIDIARIAS" ya calculado;
+            // no se valida jerarquía de descuentos ni se aplica sobrecargo.
+            if (esSubsidiaria) {
+                log.debug('[CM_DEBUG] Cliente subsidiaria detectado. Se omite validación de márgenes.');
+                return;
             }
 
             const lineCount = newRecord.getLineCount({ sublistId: 'item' });

@@ -82,5 +82,14 @@ define(['N/error', 'N/log'], (error, log) => {
         };
     };
 
-    return { validateMarginRule };
+    /**
+     * Determina si un cliente está marcado como subsidiaria / intercompañía.
+     * @param {Object} customerData - Resultado de search.lookupFields sobre el cliente.
+     * @returns {boolean}
+     */
+    const isSubsidiaryCustomer = (customerData) => {
+        return !!(customerData && customerData.custentity_alm_check_intercompania);
+    };
+
+    return { validateMarginRule, isSubsidiaryCustomer };
 });
