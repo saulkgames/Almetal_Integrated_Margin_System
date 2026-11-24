@@ -17,7 +17,7 @@ Este desarrollo refactoriza el comportamiento interactivo del cálculo de márge
    Se implementó un objeto de estado para cachear valores estáticos y semidinámicos (límites de usuario, cliente, término de entrega anterior y reducciones actuales). Esto minimiza las lecturas constantes al DOM de la transacción y permite mantener consistencia de datos durante operaciones asíncronas.
 
 2. **Mitigación de Race Conditions (Bloqueo de UI)**
-   Al cambiar el cliente (`entity`), se lanza una promesa para traer datos cruzados. Para evitar que el usuario tabule rápidamente e interactúe con los términos de entrega antes de que la promesa resuelva, se bloquea (`isDisabled = true`) temporalmente el campo `custbody_termino_entrega` y se libera en las resoluciones `.then()` y `.catch()`.
+   Al cambiar el cliente (`entity`), se lanza una promesa para traer datos cruzados. Para evitar que el usuario tabule rápidamente e interactúe con los términos de entrega antes de que la promesa resuelva, se bloquea (`isDisabled = true`) temporalmente el campo `custbody_freigth_service_terms` y se libera en las resoluciones `.then()` y `.catch()`.
 
 3. **Recálculo Iterativo Optimizado**
    Cuando un nuevo término de entrega reduce la capacidad de descuento, el script evalúa las líneas existentes. Para proteger el rendimiento en el navegador (límite de gobernanza de Client Scripts vs latencia de DOM), se utiliza `getSublistValue` para leer el estado de la línea sin seleccionarla. Solo si el descuento de la línea viola el nuevo límite, se hace el ciclo `selectLine` -> `commitLine`.
@@ -28,7 +28,7 @@ Este desarrollo refactoriza el comportamiento interactivo del cálculo de márge
 ## Instrucciones de Despliegue
 * **Registros de aplicación:** Este script debe ser desplegado sobre los registros de tipo Transacción donde aplique la venta (ej. *Sales Order*, *Estimate/Quote*).
 * **Campos Requeridos (Verificar IDs en entorno):** * `custbody_curr_user_discount_limit`
-  * `custbody_termino_entrega`
+  * `custbody_freigth_service_terms`
   * `custbody_hidden_serv_lvl_reduction`
   * `custcol_margen_desc_solicitado`, `custcol_margen_estandar`, `custcol_margen_minimo_item`, `custcol_margen_aplicado`.
 * **Roles:** No se requiere configuración de Ejecución como Administrador a nivel script, pero sí asegurar que el rol de ventas tenga permisos de vista al Custom Record `customrecord_margin_system_lvl_service`.

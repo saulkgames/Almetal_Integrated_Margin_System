@@ -17,6 +17,7 @@
       <feature required="false">MAILMERGE</feature>
       <feature required="true">CUSTOMRECORDS</feature>
       <feature required="false">PAYABLES</feature>
+      <feature required="false">VENDORPREPAYMENTS</feature>
       <feature required="false">WEBSITE</feature>
       <feature required="false">OPPORTUNITIES</feature>
       <feature required="false">PAYCHECKJOURNAL</feature>
@@ -25,10 +26,24 @@
       <feature required="false">ACCOUNTING</feature>
       <feature required="false">WEBSTORE</feature>
       <feature required="false">MERCHANDISEHIERARCHY</feature>
+      <feature required="true">UNITSOFMEASURE</feature>
+      <feature required="false">SUBSIDIARIES</feature>
+      <feature required="true">SERVERSIDESCRIPTING</feature>
+      <feature required="false">CREATESUITEBUNDLES</feature>
     </features>
     <objects>
-        <object>custitem_alm_preciofinal_cargos</object>
-        <object>custitem_drt_ci_margen_para_venta</object>
+      <object>customlist_sang_list_clasifi_client.val_8726039_5490848_940</object>
+      <object>customlist_sang_list_clasifi_client.val_8726042_5490848_914</object>
+      <object>customlist_sang_list_clasifi_client.val_8726044_5490848_556</object>
+      <object>customlist_sang_list_clasifi_client.val_8726043_5490848_367</object>
+      <object>custentity_sang_clasi_cliente_ventas</object>
+      <object>customlist_sang_list_clasifi_client</object>
+      <object>customrecord_pfp_fammargenes_.custrecord_drt_ci_m_margen</object>
+      <object>customlist_sang_list_clasifi_client.val_8726041_5490848_337</object>
+      <object>customlist_sang_list_clasifi_client.val_8726038_5490848_777</object>
+      <object>custitem_pfp_fammargenes_</object>
+      <object>custitem_drt_descuento_maximo</object>
+      <object>customlist_sang_list_clasifi_client.val_8726040_5490848_524</object>
     </objects>
   </dependencies>
 </manifest>

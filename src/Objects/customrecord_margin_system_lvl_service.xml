@@ -209,12 +209,28 @@
   </customrecordcustomfields>
   <instances>
     <instance scriptid="val_8391324_5490848_sb1_837">
-      <custrecord_client_serv_lvl>[ACCOUNT_SPECIFIC_VALUE]</custrecord_client_serv_lvl>
+      <custrecord_client_serv_lvl></custrecord_client_serv_lvl>
       <custrecord_serv_lvl_enviodias>0.0%</custrecord_serv_lvl_enviodias>
-      <custrecord_serv_lvl_enviohoy>50.0%</custrecord_serv_lvl_enviohoy>
-      <custrecord_serv_lvl_noenvio>10.0%</custrecord_serv_lvl_noenvio>
+      <custrecord_serv_lvl_enviohoy>20.0%</custrecord_serv_lvl_enviohoy>
+      <custrecord_serv_lvl_noenvio>0.0%</custrecord_serv_lvl_noenvio>
       <isinactive>F</isinactive>
       <name>Octavio Montoya</name>
+    </instance>
+    <instance scriptid="val_8662991_5490848_109">
+      <custrecord_client_serv_lvl></custrecord_client_serv_lvl>
+      <custrecord_serv_lvl_enviodias>0.0%</custrecord_serv_lvl_enviodias>
+      <custrecord_serv_lvl_enviohoy>0.0%</custrecord_serv_lvl_enviohoy>
+      <custrecord_serv_lvl_noenvio>0.0%</custrecord_serv_lvl_noenvio>
+      <isinactive>F</isinactive>
+      <name>Subsidiarias</name>
+    </instance>
+    <instance scriptid="val_8730196_5490848_652">
+      <custrecord_client_serv_lvl></custrecord_client_serv_lvl>
+      <custrecord_serv_lvl_enviodias>0.0%</custrecord_serv_lvl_enviodias>
+      <custrecord_serv_lvl_enviohoy>0.0%</custrecord_serv_lvl_enviohoy>
+      <custrecord_serv_lvl_noenvio>0.0%</custrecord_serv_lvl_noenvio>
+      <isinactive>F</isinactive>
+      <name>GENERICO</name>
     </instance>
   </instances>
 </customrecordtype>

@@ -2,11 +2,10 @@
  * @NApiVersion 2.1
  * @NScriptType ClientScript
  * @NModuleScope SameAccount
- * @description Controlador de interfaz de usuario para inyección de precios, estado global y validación de reglas en líneas.
- * @appliedtorecord - Estimate.
+ * @description UI controller for price injection, global state, and line-level margin rule validation on sale transactions.
  * @author Saul Ivan Angulo Varela
  * @contact saul.angulo98@gmail.com
- * @version 1.0.0
+ * @version 1.1.0
  * @copyright Saul Angulo Development Services
  * @RiotID - ares98
  */
@@ -25,32 +24,59 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
             configSobrecargos: {}
         };
 
+        const isFieldAvailable = (rec, fieldId) => {
+            try {
+                rec.getField({ fieldId });
+                return true;
+            } catch (e) {
+                return false;
+            }
+        };
+
         /**
          * GATILLO 1: Inicialización de la página. Se lee el estado base inyectado por User Event.
          */
         const pageInit = (context) => {
-            const rec = context.currentRecord;
+            try {
+                const rec = context.currentRecord;
 
-            globalState.limiteUsuario = parseFloat(rec.getValue({ fieldId: 'custbody_curr_user_discount_limit' })) || 0;
-            globalState.terminoEntregaAnterior = rec.getValue({ fieldId: 'custbody_freigth_service_terms' });
-            globalState.limiteCliente = parseFloat(rec.getValue({ fieldId: 'custbody_curr_cust_discount_limit' })) || 0;
-            globalState.reduccionServicioActual = parseFloat(rec.getValue({ fieldId: 'custbody_cust_serv_lvl' })) || 0;
+                const requiredBodyFields = [
+                    'custbody_curr_user_discount_limit',
+                    'custbody_freigth_service_terms',
+                    'custbody_curr_cust_discount_limit',
+                    'custbody_cust_serv_lvl',
+                    'custbody_sang_hidden_surcharge_config'
+                ];
 
-            const customerId = rec.getValue({ fieldId: 'entity' });
-            if (customerId) {
-                handleCustomerChange(rec);
-            }
-            
-            const injectedConfig = rec.getValue({ fieldId: 'custbody_sang_hidden_surcharge_config' });
-            if (injectedConfig) {
-                try {
-                    globalState.configSobrecargos = JSON.parse(injectedConfig);
-                } catch (e) {
-                    console.error('[CM_ERROR] No se pudo parsear la config de sobrecargos', e);
+                const missingFields = requiredBodyFields.filter((fieldId) => !isFieldAvailable(rec, fieldId));
+                if (missingFields.length > 0) {
+                    console.warn('[CM_WARN] pageInit: required fields not available on this record:', missingFields.join(', '));
+                    return;
                 }
-            }
 
-            console.log('[CM_DEBUG] pageInit completado. Estado inicial:', JSON.stringify(globalState));
+                globalState.limiteUsuario = parseFloat(rec.getValue({ fieldId: 'custbody_curr_user_discount_limit' })) || 0;
+                globalState.terminoEntregaAnterior = rec.getValue({ fieldId: 'custbody_freigth_service_terms' });
+                globalState.limiteCliente = parseFloat(rec.getValue({ fieldId: 'custbody_curr_cust_discount_limit' })) || 0;
+                globalState.reduccionServicioActual = parseFloat(rec.getValue({ fieldId: 'custbody_cust_serv_lvl' })) || 0;
+
+                const customerId = rec.getValue({ fieldId: 'entity' });
+                if (customerId) {
+                    handleCustomerChange(rec);
+                }
+                
+                const injectedConfig = rec.getValue({ fieldId: 'custbody_sang_hidden_surcharge_config' });
+                if (injectedConfig) {
+                    try {
+                        globalState.configSobrecargos = JSON.parse(injectedConfig);
+                    } catch (e) {
+                        console.error('[CM_ERROR] No se pudo parsear la config de sobrecargos', e);
+                    }
+                }
+
+                console.log('[CM_DEBUG] pageInit completado. Estado inicial:', JSON.stringify(globalState));
+            } catch (e) {
+                console.error('[CM_ERROR] Error en pageInit:', e);
+            }
         };
 
         /**
@@ -298,7 +324,7 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
                     } else {
                         setTimeout(() => {
                             rec.setValue({
-                                fieldId: 'custbody_termino_entrega',
+                                fieldId: 'custbody_freigth_service_terms',
                                 value: globalState.terminoEntregaAnterior,
                                 ignoreFieldChange: true
                             });
@@ -464,12 +490,24 @@ define(['N/ui/dialog', 'N/search', './CM_Margin_System_Core', './CM_Surcharge_Sy
             const result = core.validateMarginRule(params);
 
             if (result.isValid) {
-                const precioAbsolutoFinal = result.finalPrice + montoCargoFisico;
                 const qty = parseFloat(rec.getCurrentSublistValue({ sublistId: 'item', fieldId: 'quantity' })) || 0;
 
+                // CORRECCIÓN: El sobrecargo (montoCargoFisico) es un cargo GLOBAL por corte,
+                // no un cargo por unidad. Antes se sumaba al precio unitario y luego ese precio
+                // se multiplicaba por qty, provocando que el sobrecargo se cobrara una vez POR METRO.
+                // Ahora se calcula el monto base normal (precio * qty) y el sobrecargo se suma UNA SOLA VEZ.
+                const montoBaseTotal = result.finalPrice * qty;
+                let montoTotalFinal = montoBaseTotal + montoCargoFisico;
+                montoTotalFinal = Math.round((montoTotalFinal + Number.EPSILON) * 100) / 100;
+
+                // El 'rate' se deriva del total solo para que la línea se vea consistente
+                // (rate * qty === amount), pero el sobrecargo ya no se multiplica por qty.
+                let rateEquivalente = qty > 0 ? (montoTotalFinal / qty) : result.finalPrice;
+                rateEquivalente = Math.round((rateEquivalente + Number.EPSILON) * 100) / 100;
+
                 rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'price', value: -1, ignoreFieldChange: true });
-                rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'rate', value: precioAbsolutoFinal, ignoreFieldChange: true });
-                rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'amount', value: (precioAbsolutoFinal * qty), ignoreFieldChange: true });
+                rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'rate', value: rateEquivalente, ignoreFieldChange: true });
+                rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'amount', value: montoTotalFinal, ignoreFieldChange: true });
                 rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_sang_monto_sobrecargo_apli', value: montoCargoFisico, ignoreFieldChange: true });
                 rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_aplicado', value: result.appliedMargin, ignoreFieldChange: true });
             } else {

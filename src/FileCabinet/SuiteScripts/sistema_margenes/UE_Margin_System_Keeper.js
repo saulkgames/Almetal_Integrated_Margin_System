@@ -1,29 +1,142 @@
 /**
  * @NApiVersion 2.1
  * @NScriptType UserEventScript
- * @description Guardián del Servidor: Inyección de Límite de Usuario y Validación de Reglas de Margen.
- * @appliedtorecord - Estimate.
+ * @description Server guardian for user discount limit injection and margin rule validation across sale transactions.
  * @author Saul Ivan Angulo Varela
  * @contact saul.angulo98@gmail.com
- * @version 1.0.0
+ * @version 1.1.0
  * @copyright Saul Angulo Development Services
  * @description - Este script implementa una lógica de validación en cascada para asegurar que los descuentos aplicados en las transacciones de ventas no excedan ni la autoridad del usuario ni la capacidad del artículo, 
  * considerando también penalizaciones por nivel de servicio. La inyección del límite del usuario se realiza al cargar la pantalla para optimizar la experiencia y evitar búsquedas repetitivas.
  * @RiotID - ares98
  */
 
-define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
+define(['N/search', 'N/runtime', 'N/error', 'N/record'], (search, runtime, error, record) => {
 
     /**
-     * Trigger 1: Inyección del límite del usuario al cargar la pantalla.
+     * Hides native conversion buttons exclusively on the Estimate record.
+     * This logic is NOT replicated on salesorder, invoice, or cashsale.
+     */
+    const hideEstimateOnlyButtons = (context) => {
+        const { newRecord, form } = context;
+
+        if (newRecord.type !== 'estimate') return;
+
+        try {
+            const terminos = newRecord.getValue({ fieldId: 'custbody_freigth_service_terms' });
+
+            // 2 = SIN ENVIO
+            if (terminos === '2') {
+                log.debug('[CM_DEBUG] Condición de envío: SIN ENVÍO. Bloqueando Orden de Venta.');
+                form.removeButton({ id: 'createsalesord' });
+            }
+            // 1 = HOY, 3 = 3 DIAS
+            else if (terminos === '1' || terminos === '3') {
+                log.debug('[CM_DEBUG] Condición de envío: CON ENVÍO. Permitiendo creación de transacciones.');
+                form.removeButton({ id: 'createcashsale' });
+                form.removeButton({ id: 'createinvoice' });
+            }
+        } catch (e) {
+            log.error({ title: 'Error en hideEstimateOnlyButtons', details: e.message });
+        }
+    };
+
+    /**
+     * Carries margin/surcharge state from the source transaction into the target
+     * transaction during native transforms (estimate → salesorder, estimate → invoice,
+     * estimate → cashsale, salesorder → invoice, salesorder → cashsale).
+     * Runs in beforeLoad CREATE so the Client Script sees the correct seeded values.
+     */
+    const carryOverMarginState = (newRecord) => {
+        const createdFrom = newRecord.getValue({ fieldId: 'createdfrom' });
+        if (!createdFrom) return;
+
+        try {
+            const sourceTypeData = search.lookupFields({
+                type: 'transaction',
+                id: createdFrom,
+                columns: ['recordtype']
+            });
+            const sourceType = sourceTypeData.recordtype;
+
+            if (!sourceType || !['estimate', 'salesorder'].includes(sourceType)) return;
+
+            const sourceRecord = record.load({
+                type: sourceType,
+                id: createdFrom
+            });
+
+            // Header fields carried from source
+            const headerFields = [
+                'custbody_cust_serv_lvl',
+                'custbody_curr_cust_discount_limit',
+                'custbody_customer_level_service_rec',
+                'custbody_freigth_service_terms'
+            ];
+
+            headerFields.forEach((fieldId) => {
+                try {
+                    const value = sourceRecord.getValue({ fieldId });
+                    if (value !== null && value !== undefined && value !== '') {
+                        newRecord.setValue({ fieldId, value, ignoreFieldChange: true });
+                    }
+                } catch (e) {
+                    log.error({ title: `Error carry-over header ${fieldId}`, details: e.message });
+                }
+            });
+
+            // Line fields carried from source. Matching uses line index because
+            // NetSuite native transform preserves line order.
+            const lineFields = [
+                'custcol_precio_sin_margen',
+                'custcol_mergn_desc_solicitado',
+                'custcol_margen_aplicado',
+                'custcol_sang_monto_sobrecargo_apli',
+                'custcol_drt_sobre_cargo'
+            ];
+
+            const sourceLineCount = sourceRecord.getLineCount({ sublistId: 'item' });
+            const targetLineCount = newRecord.getLineCount({ sublistId: 'item' });
+            const linesToProcess = Math.min(sourceLineCount, targetLineCount);
+
+            for (let i = 0; i < linesToProcess; i++) {
+                lineFields.forEach((fieldId) => {
+                    try {
+                        const value = sourceRecord.getSublistValue({
+                            sublistId: 'item',
+                            fieldId,
+                            line: i
+                        });
+                        if (value !== null && value !== undefined && value !== '') {
+                            newRecord.setSublistValue({
+                                sublistId: 'item',
+                                fieldId,
+                                line: i,
+                                value,
+                                ignoreFieldChange: true
+                            });
+                        }
+                    } catch (e) {
+                        log.error({ title: `Error carry-over line ${fieldId}:${i}`, details: e.message });
+                    }
+                });
+            }
+        } catch (e) {
+            log.error({ title: 'Error en carryOverMarginState', details: e.message });
+        }
+    };
+
+    /**
+     * Trigger 1: User limit and surcharge config injection, plus state carry-over
+     * from source transaction on native transforms.
      */
     const beforeLoad = (context) => {
         const newRecord = context.newRecord;
-        // Solo ejecutamos en creación para inicializar el dato
+
+        // Only run on create to initialize data
         if (context.type === context.UserEventType.CREATE) {
             try {
                 const user = runtime.getCurrentUser();
-
 
                 const employeeData = search.lookupFields({
                     type: search.Type.EMPLOYEE,
@@ -32,7 +145,7 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
                 });
 
                 const limiteUsuario = parseFloat(employeeData.custentity_user_margin_limit) || 0;
-
+                log.debug('Limite de usuario: ', limiteUsuario);
                 newRecord.setValue({
                     fieldId: 'custbody_curr_user_discount_limit',
                     value: limiteUsuario
@@ -44,7 +157,7 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
                     columns: ['custrecord_sang_sc_rango1', 'custrecord_sang_sc_rango2', 'custrecord_sang_sc_rango3', 'custrecord_sang_sc_rango4']
                 });
 
-                // Convertimos los porcentajes de texto nativo a decimal y empaquetamos en JSON
+                // Convert native text percentages to decimal and pack as JSON
                 const surchargeConfigJSON = {
                     rango1: (parseFloat(configRecord.custrecord_sang_sc_rango1) || 0) / 100,
                     rango2: (parseFloat(configRecord.custrecord_sang_sc_rango2) || 0) / 100,
@@ -59,31 +172,15 @@ define(['N/search', 'N/runtime', 'N/error'], (search, runtime, error) => {
 
             } catch (e) {
                 log.error({ title: 'Error en beforeLoad - Inyecciones', details: e.message });
-                // No bloqueamos la carga, solo registramos el error
+                // Do not block load; just log the error
             }
+
+            // Carry margin state from source transaction on native transform
+            carryOverMarginState(newRecord);
         }
 
-
-        if (context.type === context.UserEventType.VIEW && newRecord.type === 'estimate') {
-
-            try {
-                const terminos = newRecord.getValue({ fieldId: 'custbody_freigth_service_terms' });
-                const form = context.form;
-
-                // 2 = SIN ENVIO
-                if (terminos === '2') {
-                    log.debug('[CM_DEBUG] Condición de envío: SIN ENVÍO. Bloqueando Orden de Venta.');
-                    form.removeButton({ id: 'createsalesord' }); 
-                }
-                // 1 = HOY, 3 = 3 DIAS
-                else if (terminos === '1' || terminos === '3') {
-                    log.debug('[CM_DEBUG] Condición de envío: CON ENVÍO. Permitiendo creación de transacciones.');
-                    form.removeButton({ id: 'createcashsale' }); 
-                    form.removeButton({ id: 'createinvoice' }); 
-                }
-            } catch (error) {
-                log.error({ title: 'Error en beforeLoad - Inyecciones', details: error.message });
-            }
+        if (context.type === context.UserEventType.VIEW) {
+            hideEstimateOnlyButtons(context);
         }
     };
 

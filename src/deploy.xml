@@ -1,6 +1,7 @@
 <deploy>
     <files>
         <path>~/FileCabinet/SuiteScripts/sistema_margenes/*</path>
+        <path>~/FileCabinet/SuiteScripts/drt_ci_costo_venta_cs.js</path>
     </files>
     <objects>
         <path>~/Objects/*</path>
