@@ -84,11 +84,15 @@ define(['N/error', 'N/log'], (error, log) => {
 
     /**
      * Determina si un cliente está marcado como subsidiaria / intercompañía.
+     * Acepta únicamente representaciones confiables de un checkbox marcado:
+     * boolean true, 'T', 'Y', 1 o '1'.
      * @param {Object} customerData - Resultado de search.lookupFields sobre el cliente.
      * @returns {boolean}
      */
     const isSubsidiaryCustomer = (customerData) => {
-        return !!(customerData && customerData.custentity_alm_check_intercompania);
+        if (!customerData) return false;
+        const raw = customerData.custentity_alm_check_intercompania;
+        return raw === true || raw === 'T' || raw === 'Y' || raw === 1 || raw === '1';
     };
 
     return { validateMarginRule, isSubsidiaryCustomer };

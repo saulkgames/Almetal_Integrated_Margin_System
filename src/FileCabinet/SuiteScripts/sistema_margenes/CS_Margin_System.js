@@ -22,7 +22,8 @@ define(['N/ui/dialog', 'N/search', 'N/runtime', './CM_Margin_System_Core', './CM
             isRecalculating: false,
             terminoEntregaAnterior: null,
             configSobrecargos: {},
-            esSubsidiaria: false
+            esSubsidiaria: false,
+            isLoadingCustomer: false
         };
 
         const getSubsidiaryPriceLevel = () => {
@@ -126,6 +127,12 @@ define(['N/ui/dialog', 'N/search', 'N/runtime', './CM_Margin_System_Core', './CM
 
             if (sublistId !== 'item') return;
 
+            // Evitar interferir mientras se cargan datos maestros del cliente.
+            if (globalState.isLoadingCustomer) {
+                console.warn('[CM_WARN] postSourcing ignorado mientras carga datos del cliente.');
+                return;
+            }
+
             // RUTA SUBSIDIARIA / INTERCOMPAÑÍA
             if (globalState.esSubsidiaria) {
                 if (fieldId === 'item' || fieldId === 'units') {
@@ -136,6 +143,11 @@ define(['N/ui/dialog', 'N/search', 'N/runtime', './CM_Margin_System_Core', './CM
                             console.log(`[CM_DEBUG] Forzando Nivel de Precio a Subsidiaria (${priceLevelSubsidiaria})...`);
                             rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'price', value: priceLevelSubsidiaria, ignoreFieldChange: false });
                         }
+                        // Limpiar residuos de descuento, margen y sobrecargo.
+                        rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_mergn_desc_solicitado', value: '', ignoreFieldChange: true });
+                        rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_aplicado', value: '', ignoreFieldChange: true });
+                        rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_sang_monto_sobrecargo_apli', value: '', ignoreFieldChange: true });
+                        rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_drt_sobre_cargo', value: false, ignoreFieldChange: true });
                     } catch (e) {
                         console.error('[CM_ERROR] Error en postSourcing para subsidiaria:', e);
                     }
@@ -232,6 +244,9 @@ define(['N/ui/dialog', 'N/search', 'N/runtime', './CM_Margin_System_Core', './CM
             // Silenciar bloqueos durante el auto-ajuste iterativo
             if (globalState.isRecalculating) return true;
 
+            // Silenciar validación mientras se cargan datos maestros del cliente.
+            if (globalState.isLoadingCustomer) return true;
+
             // Las subsidiarias usan su propio price level; no aplican jerarquía de descuentos.
             if (globalState.esSubsidiaria) return true;
 
@@ -271,14 +286,57 @@ define(['N/ui/dialog', 'N/search', 'N/runtime', './CM_Margin_System_Core', './CM
         // FUNCIONES AUXILIARES (HELPERS)
         // ========================================================================
 
+        /**
+         * Convierte las líneas existentes al price level apropiado cuando el cliente
+         * cambia entre normal y subsidiaria. Limpia campos de descuento/margen/
+         * sobrecargo para evitar residuos.
+         */
+        const convertLinesForCustomerType = (rec, esSubsidiaria) => {
+            globalState.isRecalculating = true;
+            try {
+                const lineCount = rec.getLineCount({ sublistId: 'item' });
+                if (lineCount === 0) return;
+
+                const targetPriceLevel = esSubsidiaria ? getSubsidiaryPriceLevel() : 1;
+                console.log(`[CM_DEBUG] Convirtiendo ${lineCount} líneas a price level ${targetPriceLevel} (subsidiaria=${esSubsidiaria})`);
+
+                for (let i = 0; i < lineCount; i++) {
+                    try {
+                        const itemType = rec.getSublistValue({ sublistId: 'item', fieldId: 'itemtype', line: i });
+                        if (itemType === 'Group' || itemType === 'Kit' || itemType === 'EndGroup') continue;
+
+                        rec.selectLine({ sublistId: 'item', line: i });
+
+                        // Limpiar residuos de descuento, margen y sobrecargo
+                        rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_mergn_desc_solicitado', value: '', ignoreFieldChange: true });
+                        rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_margen_aplicado', value: '', ignoreFieldChange: true });
+                        rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_sang_monto_sobrecargo_apli', value: '', ignoreFieldChange: true });
+                        rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'custcol_drt_sobre_cargo', value: false, ignoreFieldChange: true });
+
+                        // Forzar el price level destino. ignoreFieldChange=false permite que NetSuite haga sourcing del rate.
+                        rec.setCurrentSublistValue({ sublistId: 'item', fieldId: 'price', value: targetPriceLevel, ignoreFieldChange: false });
+                        rec.commitLine({ sublistId: 'item' });
+                    } catch (lineError) {
+                        console.error(`[CM_ERROR] Error convirtiendo línea ${i}:`, lineError);
+                    }
+                }
+            } catch (e) {
+                console.error('[CM_ERROR] Error en convertLinesForCustomerType:', e);
+            } finally {
+                globalState.isRecalculating = false;
+            }
+        };
+
         const handleCustomerChange = (rec) => {
             const customerId = rec.getValue({ fieldId: 'entity' });
             if (!customerId) {
                 globalState.limiteCliente = 0;
                 globalState.nivelesEnvio = { noEnvio: 0, envioHoy: 0, envioDias: 0 };
+                globalState.esSubsidiaria = false;
                 return;
             }
 
+            globalState.isLoadingCustomer = true;
             const termsField = rec.getField({ fieldId: 'custbody_freigth_service_terms' });
             if (termsField) termsField.isDisabled = true;
 
@@ -291,9 +349,15 @@ define(['N/ui/dialog', 'N/search', 'N/runtime', './CM_Margin_System_Core', './CM
                     'custentity_alm_check_intercompania'
                 ]
             }).then((customerData) => {
+                const previousEsSubsidiaria = globalState.esSubsidiaria;
                 globalState.limiteCliente = parseFloat(customerData.custentity_maxdiscount_margin_percent) || 0;
                 globalState.esSubsidiaria = core.isSubsidiaryCustomer(customerData);
                 rec.setValue({ fieldId: 'custbody_curr_cust_discount_limit', value: globalState.limiteCliente });
+
+                // Si cambió el tipo de cliente, convertir las líneas existentes al price level apropiado.
+                if (previousEsSubsidiaria !== globalState.esSubsidiaria) {
+                    convertLinesForCustomerType(rec, globalState.esSubsidiaria);
+                }
 
                 const serviceLevelField = customerData.custentity_custrec_service_level;
                 const serviceLevelId = (serviceLevelField && serviceLevelField.length > 0)
@@ -303,7 +367,6 @@ define(['N/ui/dialog', 'N/search', 'N/runtime', './CM_Margin_System_Core', './CM
                 if (!serviceLevelId) {
                     globalState.nivelesEnvio = { noEnvio: 0, envioHoy: 0, envioDias: 0 };
                     console.log('[CM_DEBUG] Cliente sin Nivel de Servicio asignado. Límite de cliente:', globalState.limiteCliente);
-                    if (termsField) termsField.isDisabled = false;
                     return Promise.reject('NO_SERVICE_LEVEL');
                 }
                 rec.setValue({ fieldId: 'custbody_customer_level_service_rec', value: serviceLevelId });
@@ -323,12 +386,13 @@ define(['N/ui/dialog', 'N/search', 'N/runtime', './CM_Margin_System_Core', './CM
                     };
                     console.log('[CM_DEBUG] Promesas resueltas. Límite Cliente:', globalState.limiteCliente, '| Niveles:', globalState.nivelesEnvio);
                 }
-                if (termsField) termsField.isDisabled = false;
 
             }).catch((e) => {
                 if (e !== 'NO_SERVICE_LEVEL') {
                     console.error('Error obteniendo datos del cliente/servicio:', e);
                 }
+            }).finally(() => {
+                globalState.isLoadingCustomer = false;
                 if (termsField) termsField.isDisabled = false;
             });
         };

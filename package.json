@@ -1,0 +1,11 @@
+{
+  "name": "almetal-margin-system-tests",
+  "version": "1.0.0",
+  "description": "Unit tests for the Almetal Integrated Margin System custom modules",
+  "scripts": {
+    "test": "jest"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}

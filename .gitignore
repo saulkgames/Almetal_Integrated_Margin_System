@@ -11,3 +11,6 @@
 !*.json
 !*.html
 !*.xml
+
+# 4. Dependencias locales de Node.js (no versionar)
+node_modules/

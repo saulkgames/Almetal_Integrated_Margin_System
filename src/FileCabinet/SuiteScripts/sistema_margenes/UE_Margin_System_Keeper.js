@@ -133,8 +133,8 @@ define(['N/search', 'N/runtime', 'N/error', 'N/record', './CM_Margin_System_Core
     const beforeLoad = (context) => {
         const newRecord = context.newRecord;
 
-        // Only run on create to initialize data
-        if (context.type === context.UserEventType.CREATE) {
+        // Only run on create or edit to initialize data
+        if (context.type === context.UserEventType.CREATE || context.type === context.UserEventType.EDIT) {
             try {
                 const user = runtime.getCurrentUser();
 
